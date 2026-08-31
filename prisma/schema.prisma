@@ -1,0 +1,292 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PENDING
+  CANCELED
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum PlanType {
+  INDIVIDUAL
+  DUPLA
+  GRUPO
+}
+
+enum DifficultyLevel {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum ReviewSource {
+  SCHEDULED
+  CONSULTA
+  AI_GENERATED
+}
+
+enum CardType {
+  BASIC
+  REVERSED
+  CLOZE
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  createdAt         DateTime           @default(now())
+  activeProfileId   String?
+  profiles          Profile[]
+  subscription      Subscription?
+  decks             Deck[]
+  questions         Question[]
+  documents         Document[]
+  flashcardSessions FlashcardSession[]
+  aiChats           AIChat[]
+  settings          UserSettings?
+  reviews           FlashcardReview[]
+  studySchedules    StudySchedule[]
+  studySessions     StudySession[]
+}
+
+model Profile {
+  id              String         @id @default(uuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String?
+  avatarUrl       String?
+  concurrenceName String?
+  targetExam      String?
+  isActiveProfile Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  progressCards   ProgressCard[]
+  studyLogs       StudyLog[]
+}
+
+model Subscription {
+  id              String             @id @default(uuid())
+  userId          String             @unique
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asaasId         String             @unique
+  status          SubscriptionStatus @default(PENDING)
+  plan            PlanType           @default(INDIVIDUAL)
+  maxProfiles     Int                @default(1)
+  paymentMethod   String?
+  nextBillingDate DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model Deck {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  color       String      @default("#00D4FF")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  cards       Flashcard[]
+}
+
+model Flashcard {
+  id              String           @id @default(uuid())
+  deckId          String
+  deck            Deck             @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  front           String
+  back            String
+  cardType        CardType         @default(BASIC)
+  easeFactor      Float            @default(2.5)
+  interval        Int              @default(0)
+  repetitions     Int              @default(0)
+  nextReview      DateTime         @default(now())
+  lastReview      DateTime?
+  currentCycleDay Int              @default(0)
+  cycleCompleted  Boolean          @default(false)
+  difficultyLevel DifficultyLevel?
+  topicId         String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  progress        ProgressCard?
+  reviews         FlashcardReview[]
+  topic           Topic?           @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([deckId, nextReview])
+  @@index([deckId, nextReview, lastReview])
+}
+
+model Question {
+  id           String             @id @default(uuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  statement    String
+  options      Json
+  correctIndex Int
+  explanation  String?
+  subject      String
+  difficulty   QuestionDifficulty @default(MEDIUM)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  fileUrl   String
+  subject   String?
+  pages     Int?
+  createdAt DateTime @default(now())
+}
+
+model ProgressCard {
+  id              String    @id @default(uuid())
+  profileId       String
+  profile         Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  flashcardId     String    @unique
+  flashcard       Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+  lastRating      Int?
+  totalReviews    Int       @default(0)
+  currentCycleDay Int       @default(0)
+  nextReviewDate  DateTime  @default(now())
+  difficultyStage String    @default("MEDIUM")
+  isCycleEnded    Boolean   @default(false)
+  firstReviewAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model StudyLog {
+  id                String   @id @default(uuid())
+  profileId         String
+  profile           Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date              DateTime @default(now())
+  cardsReviewed     Int      @default(0)
+  timeSpentMin      Int      @default(0)
+  questionsAnswered Int      @default(0)
+}
+
+model Subject {
+  id            String         @id @default(uuid())
+  name          String
+  topics        Topic[]
+  studySessions StudySession[]
+}
+
+model Topic {
+  id            String         @id @default(uuid())
+  subjectId     String
+  subject       Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  name          String
+  createdAt     DateTime       @default(now())
+  flashcards    Flashcard[]
+  studySessions StudySession[]
+}
+
+model FlashcardReview {
+  id              String         @id @default(uuid())
+  flashcardId     String
+  flashcard       Flashcard      @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date            DateTime       @default(now())
+  quality         Int
+  difficultyLevel DifficultyLevel
+  userAnswer      String?
+  aiEvaluation    String?
+  source          ReviewSource   @default(SCHEDULED)
+  timeSpentMs     Int?
+
+  @@index([userId, date])
+}
+
+model FlashcardSession {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt   DateTime     @default(now())
+  endedAt     DateTime?
+  cardsViewed Int          @default(0)
+  source      ReviewSource @default(SCHEDULED)
+  totalMs     Int?
+}
+
+model UserSettings {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiEnabled       Boolean   @default(true)
+  pomodoroMin     Int       @default(25)
+  breakDuration   Int       @default(5)
+  theme           String    @default("dark")
+  streakCount     Int       @default(0)
+  lastStreakDate  DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+model AIChat {
+  id        String          @id @default(uuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime        @default(now())
+  messages  AIChatMessage[]
+}
+
+model AIChatMessage {
+  id        String   @id @default(uuid())
+  chatId    String
+  chat      AIChat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model StudySchedule {
+  id         String         @id @default(uuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  examDate   DateTime
+  totalDays  Int
+  startDate  DateTime
+  createdAt  DateTime       @default(now())
+  items      ScheduleItem[]
+}
+
+model StudySession {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjectId       String?
+  subject         Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  topicId         String?
+  topic           Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  durationMinutes Int
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model ScheduleItem {
+  id           String        @id @default(uuid())
+  scheduleId   String
+  schedule     StudySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  subjectId    String?
+  topicId      String?
+  scheduledFor DateTime
+  completed    Boolean       @default(false)
+}

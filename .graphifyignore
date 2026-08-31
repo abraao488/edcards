@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+dist/
+.env*
+!.env.example
+.supabase/
+prisma/migrations/
+graphify-out/
+*
+!src/
+!src/**
+!prisma/schema.prisma

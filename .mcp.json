@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "url": "https://mcp.supabase.com/mcp",
+      "transport": "streamable-http",
+      "description": "Supabase MCP - Gerenciamento de banco de dados, auth, storage e edge functions"
+    },
+    "asaas": {
+      "url": "https://mcp.asaas.com/mcp",
+      "transport": "streamable-http",
+      "description": "Asaas MCP - Gestão de assinaturas, cobranças e clientes"
+    }
+  }
+}
