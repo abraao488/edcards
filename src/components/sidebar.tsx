@@ -40,7 +40,7 @@ const navItems = [
   },
   {
     label: "Crie com Revisaí",
-    href: "/criar-com-revisai",
+    href: "/criar-com-edcards",
     icon: Sparkles,
   },
   {

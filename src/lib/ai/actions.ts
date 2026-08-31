@@ -2,12 +2,14 @@
 
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
-import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 
 export interface GeneratedFlashcard {
   front: string
   back: string
 }
+
+const AI_DAILY_LIMIT = 20
 
 /**
  * Gera flashcards (entre 3 e 10) a partir de um texto/material enviado pelo usuário,
@@ -18,6 +20,34 @@ export interface GeneratedFlashcard {
 export async function generateFlashcardsFromText(
   content: string
 ): Promise<GeneratedFlashcard[]> {
+  // 0. Controle diário de gerações por IA
+  const authUser = await requireActiveSubscriptionForAction()
+
+  const now = new Date()
+  const startOfToday = new Date(now)
+  startOfToday.setHours(0, 0, 0, 0)
+
+  const settings = await prisma.userSettings.upsert({
+    where: { userId: authUser.id },
+    create: { userId: authUser.id },
+    update: {},
+  })
+
+  if (settings.aiGenerationsResetAt < startOfToday) {
+    await prisma.userSettings.update({
+      where: { userId: authUser.id },
+      data: { aiGenerationsToday: 0, aiGenerationsResetAt: now },
+    })
+    settings.aiGenerationsToday = 0
+    settings.aiGenerationsResetAt = now
+  }
+
+  if (settings.aiGenerationsToday >= AI_DAILY_LIMIT) {
+    throw new Error(
+      "Você atingiu o limite diário de gerações por IA. Tente novamente amanhã."
+    )
+  }
+
   // 1. Validações de entrada e configuração
   const trimmedContent = content.trim()
   if (!trimmedContent) {
@@ -87,6 +117,12 @@ Retorne estritamente um JSON estruturado como:
       )
     }
 
+    // Só conta como geração quando a Groq API retorna com sucesso
+    await prisma.userSettings.update({
+      where: { userId: authUser.id },
+      data: { aiGenerationsToday: { increment: 1 } },
+    })
+
     const data = await response.json()
     rawContent = data.choices?.[0]?.message?.content || ""
   } catch (err) {
@@ -145,6 +181,8 @@ Retorne estritamente um JSON estruturado como:
 
 
 export async function generateFlashcardsFromPDF(formData: FormData): Promise<GeneratedFlashcard[]> {
+  await requireActiveSubscriptionForAction()
+
   const file = formData.get("pdf") as File | null
   if (!file) {
     throw new Error("Nenhum arquivo PDF enviado.")
@@ -186,7 +224,7 @@ export async function generateFlashcardsFromPDF(formData: FormData): Promise<Gen
 }
 
 export async function injectFlashcardsToDatabase(cards: { front: string; back: string }[]) {
-  const user = await ensureUserExists()
+  const user = await requireActiveSubscriptionForAction()
 
   // Get or create a deck for the user
   let deck = await prisma.deck.findFirst({
@@ -233,7 +271,7 @@ export async function injectFlashcardsToDatabase(cards: { front: string; back: s
   }
 
   revalidatePath("/dashboard/flashcards")
-  revalidatePath("/criar-com-revisai")
+  revalidatePath("/criar-com-edcards")
 
   return { count: createdCards.length }
 }

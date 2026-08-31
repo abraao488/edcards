@@ -227,16 +227,18 @@ model FlashcardSession {
 }
 
 model UserSettings {
-  id              String    @id @default(uuid())
-  userId          String    @unique
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  aiEnabled       Boolean   @default(true)
-  pomodoroMin     Int       @default(25)
-  breakDuration   Int       @default(5)
-  theme           String    @default("dark")
-  streakCount     Int       @default(0)
-  lastStreakDate  DateTime?
-  updatedAt       DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiEnabled             Boolean   @default(true)
+  aiGenerationsToday    Int       @default(0)
+  aiGenerationsResetAt  DateTime  @default(now())
+  pomodoroMin           Int       @default(25)
+  breakDuration         Int       @default(5)
+  theme                 String    @default("dark")
+  streakCount           Int       @default(0)
+  lastStreakDate        DateTime?
+  updatedAt             DateTime  @updatedAt
 }
 
 model AIChat {
