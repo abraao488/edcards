@@ -687,7 +687,7 @@ export function SRSReviewSession({
                       ? "Sua 1ª revisão foi agendada para daqui a 24 horas."
                       : evalMode === "AUTO"
                       ? "Atualizando curva de retenção do SRS."
-                      : "A IA do Revisaí está realizando a comparação semântica."}
+                      : "A IA do Edcards está realizando a comparação semântica."}
                   </p>
                 </div>
               </div>
@@ -791,7 +791,7 @@ export function SRSReviewSession({
           <div className="border-t border-border/40 pt-4 flex justify-between items-center">
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Flame className="h-3.5 w-3.5 text-orange-500" />
-              {isQuizMode ? "Revisaí Modo Consulta (Não altera o banco)" : "Revisaí Spaced Repetition Active"}
+              {isQuizMode ? "Edcards Modo Consulta (Não altera o banco)" : "Edcards Spaced Repetition Active"}
             </span>
 
             {step === "COMPARING" && showFirstTimeUI && (

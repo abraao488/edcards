@@ -85,7 +85,7 @@ export function OrganizeButton() {
     >
       <Shuffle className="h-8 w-8 text-primary" />
       <div>
-        <h3 className="font-semibold text-foreground">Organiza Revisaí</h3>
+        <h3 className="font-semibold text-foreground">Organiza Edcards</h3>
         <p className="text-sm text-muted-foreground">
           Redistribuir flashcards atrasados
         </p>

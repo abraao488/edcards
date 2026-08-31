@@ -17,7 +17,7 @@ const geistMono = localFont({
 })
 
 export const metadata: Metadata = {
-  title: "Revisaí - Preparação para Concursos",
+  title: "Edcards - Preparação para Concursos",
   description: "Sua plataforma de estudos com flashcards e repetição espaçada",
 }
 

@@ -39,17 +39,17 @@ const navItems = [
     icon: PlusCircle,
   },
   {
-    label: "Crie com Revisaí",
+    label: "Crie com Edcards",
     href: "/criar-com-edcards",
     icon: Sparkles,
   },
   {
-    label: "Organiza Revisaí",
+    label: "Organiza Edcards",
     href: "/organizar",
     icon: SlidersHorizontal,
   },
   {
-    label: "Gerenciador Revisaí",
+    label: "Gerenciador Edcards",
     href: "/gerenciador",
     icon: ClipboardList,
   },
@@ -80,7 +80,7 @@ export function Sidebar({ email }: { email?: string }) {
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-border bg-card">
       <div className="flex h-16 items-center gap-2 border-b border-border px-6">
         <Sparkles className="h-8 w-8 text-primary" />
-        <span className="text-xl font-bold text-foreground">Revisaí</span>
+        <span className="text-xl font-bold text-foreground">Edcards</span>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">

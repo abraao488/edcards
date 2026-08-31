@@ -7,7 +7,7 @@ export default function LandingPage() {
       <div className="mx-auto max-w-2xl text-center">
         <div className="mb-8 flex items-center justify-center gap-3">
           <Brain className="h-12 w-12 text-primary" />
-          <h1 className="text-5xl font-bold text-foreground">Revisaí</h1>
+          <h1 className="text-5xl font-bold text-foreground">Edcards</h1>
         </div>
         <p className="mb-8 text-lg text-muted-foreground">
           Sua plataforma de preparação para concursos públicos com flashcards

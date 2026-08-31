@@ -71,7 +71,7 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card p-6">
         <h3 className="mb-2 text-lg font-semibold text-foreground">
-          Revisaí Premium
+          Edcards Premium
         </h3>
         <p className="mb-6 text-sm text-muted-foreground">
           Acesso ilimitado a todas as funcionalidades da plataforma.
