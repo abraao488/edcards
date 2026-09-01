@@ -81,7 +81,7 @@ model Subscription {
   id              String             @id @default(uuid())
   userId          String             @unique
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  asaasId         String             @unique
+  mercadopagoId   String             @unique
   status          SubscriptionStatus @default(PENDING)
   plan            PlanType           @default(INDIVIDUAL)
   maxProfiles     Int                @default(1)

@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { CreditCard, QrCode, CheckCircle, Loader2 } from "lucide-react"
-import { subscribe } from "@/lib/asaas/actions"
+import { CreditCard, CheckCircle, Loader2 } from "lucide-react"
+import { subscribe } from "@/lib/mercadopago/actions"
 
 interface SubscriptionStatus {
   active: boolean
@@ -13,23 +13,23 @@ interface SubscriptionStatus {
 }
 
 export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null }) {
-  const [loading, setLoading] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleSubscribe(type: "PIX" | "CREDIT_CARD") {
-    setLoading(type)
+  async function handleSubscribe() {
+    setLoading(true)
     setError(null)
     try {
-      const result = await subscribe(type)
-      if (result.paymentUrl) {
-        window.open(result.paymentUrl, "_blank")
+      const result = await subscribe()
+      if (result.initPoint) {
+        window.location.href = result.initPoint
       } else {
         setError("Link de pagamento não disponível. Tente novamente.")
       }
     } catch {
       setError("Erro ao criar assinatura")
     } finally {
-      setLoading(null)
+      setLoading(false)
     }
   }
 
@@ -41,8 +41,7 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
           <h3 className="font-semibold text-foreground">Assinatura Ativa</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Plano: {sub.plan === "premium" ? "Premium" : sub.plan} ·{" "}
-          Pagamento: {sub.paymentMethod === "PIX" ? "Pix" : "Cartão de Crédito"}
+          Plano: {sub.plan === "premium" ? "Premium" : sub.plan}
         </p>
         {sub.nextBillingDate && (
           <p className="text-sm text-muted-foreground">
@@ -99,36 +98,23 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
         </ul>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <button
-          onClick={() => handleSubscribe("PIX")}
-          disabled={loading !== null}
-          className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50"
-        >
-          <QrCode className="h-8 w-8 text-primary" />
-          <div>
-            <p className="font-semibold text-foreground">Pix</p>
-            <p className="text-xs text-muted-foreground">Pagamento à vista</p>
-          </div>
-          {loading === "PIX" && (
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          )}
-        </button>
-        <button
-          onClick={() => handleSubscribe("CREDIT_CARD")}
-          disabled={loading !== null}
-          className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50"
-        >
+      <button
+        onClick={handleSubscribe}
+        disabled={loading}
+        className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50"
+      >
+        {loading ? (
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        ) : (
           <CreditCard className="h-8 w-8 text-primary" />
-          <div>
-            <p className="font-semibold text-foreground">Cartão</p>
-            <p className="text-xs text-muted-foreground">Recorrência mensal</p>
-          </div>
-          {loading === "CREDIT_CARD" && (
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          )}
-        </button>
-      </div>
+        )}
+        <div>
+          <p className="font-semibold text-foreground">
+            {loading ? "Redirecionando..." : "Assinar agora"}
+          </p>
+          <p className="text-xs text-muted-foreground">Cartão de crédito ou Pix</p>
+        </div>
+      </button>
 
       {error && (
         <p className="text-sm text-destructive">{error}</p>
