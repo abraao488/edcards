@@ -27,6 +27,18 @@ export async function saveStudySession(
   return session;
 }
 
+export async function updateQuizModePreference(value: boolean) {
+  const user = await ensureUserExists();
+
+  await prisma.userSettings.upsert({
+    where: { userId: user.id },
+    create: { userId: user.id, preferQuizMode: value },
+    update: { preferQuizMode: value },
+  });
+
+  return { success: true };
+}
+
 export async function getStudyTimeStats(userId: string) {
   const studySessions = await prisma.studySession.findMany({
     where: { userId },

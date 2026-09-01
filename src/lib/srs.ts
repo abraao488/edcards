@@ -1,5 +1,6 @@
 "use server"
 
+import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import {
@@ -71,6 +72,7 @@ export async function evaluateAnswerWithAI(
       }
     } catch (err) {
       console.error("Erro ao ler UserSettings:", err)
+      Sentry.captureException(err, { tags: { source: "srs/user-settings" } })
     }
   }
 
@@ -144,6 +146,7 @@ Retorne estritamente um JSON estruturado como:
       }
     } catch (err) {
       console.error("Groq request falhou, usando fallback de similaridade:", err)
+      Sentry.captureException(err, { tags: { source: "srs/evaluate-answer" } })
     }
   }
 

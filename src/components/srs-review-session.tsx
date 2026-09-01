@@ -83,6 +83,7 @@ export function SRSReviewSession({
   const [queueRemaining, setQueueRemaining] = useState<number>(initialQueueCount ?? initialProgressCards.length)
 
   const inputRef = useRef<HTMLInputElement>(null)
+  const hasSavedRef = useRef(false)
 
   useEffect(() => {
     if (initialQueueCount !== undefined) setQueueRemaining(initialQueueCount)
@@ -116,16 +117,49 @@ export function SRSReviewSession({
   const decrementQueue = () => setQueueRemaining((prev) => Math.max(0, prev - 1))
 
   const recordStudyTime = async () => {
+    if (hasSavedRef.current) return
     if (!sessionStartTime) return
+    hasSavedRef.current = true
     const elapsedMinutes = Math.max(1, Math.round((Date.now() - sessionStartTime) / 60000))
     try {
       const subjectId = currentCard?.flashcard.topic?.subject.id || null
       const topicId = currentCard?.flashcard.topic?.id || null
       await saveStudySession(subjectId, topicId, elapsedMinutes)
     } catch (err) {
+      hasSavedRef.current = false
       console.error("Erro ao salvar sessao de estudo:", err)
     }
   }
+
+  const recordStudyTimeBeacon = () => {
+    if (hasSavedRef.current) return
+    if (!sessionStartTime) return
+    hasSavedRef.current = true
+    const elapsedMinutes = Math.max(1, Math.round((Date.now() - sessionStartTime) / 60000))
+    const subjectId = currentCard?.flashcard.topic?.subject.id || null
+    const topicId = currentCard?.flashcard.topic?.id || null
+    const data = new URLSearchParams({
+      subjectId: subjectId || "",
+      topicId: topicId || "",
+      minutes: String(elapsedMinutes),
+    })
+    navigator.sendBeacon("/api/study-sessions", data)
+  }
+
+  useEffect(() => {
+    if (!sessionStartTime) return
+
+    const handleBeforeUnload = () => {
+      recordStudyTimeBeacon()
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      recordStudyTime()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionStartTime])
 
   const handleStart = () => {
     setIsFocused(true)

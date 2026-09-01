@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import * as Sentry from "@sentry/nextjs"
 import { prisma } from "@/lib/prisma"
 
 export async function POST(request: Request) {
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
     }
   } catch (err) {
     console.error("[Webhook] Error processing event:", event, err)
+    Sentry.captureException(err, { tags: { source: "webhook/asaas", event }, extra: { subscriptionId: subscription?.id } })
   }
 
   return NextResponse.json({ received: true })

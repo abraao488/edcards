@@ -1,5 +1,6 @@
 "use server"
 
+import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
@@ -134,6 +135,7 @@ Retorne estritamente um JSON estruturado como:
       throw err
     }
     console.error("Groq request falhou:", err)
+    Sentry.captureException(err, { tags: { source: "ai/generate-flashcards" } })
     throw new Error(
       "Não consegui me conectar à IA para gerar os flashcards. Tenta de novo."
     )
