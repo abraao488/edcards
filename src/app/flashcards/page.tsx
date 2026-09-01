@@ -45,7 +45,7 @@ export default async function FlashcardsPage({
 
   const topicId = searchParams.topicId
 
-  // Modo consulta por assunto específico (comportamento de /materias)
+  // Revisão por assunto específico — sempre em modo real (isQuizMode=false, com SRS + IA)
   if (topicId) {
     const result = await getTopicFlashcardsForQuiz(dbUser.id, topicId)
 
@@ -61,7 +61,6 @@ export default async function FlashcardsPage({
           email={dbUser.email}
           pomodoroMin={settings?.pomodoroMin ?? 25}
           initialQueueCount={queueCount}
-          initialQuizMode={settings?.preferQuizMode ?? false}
           subjects={subjects}
           initialTopicId={topicId}
         />
@@ -98,10 +97,8 @@ export default async function FlashcardsPage({
         email={dbUser.email}
         pomodoroMin={settings?.pomodoroMin ?? 25}
         initialQueueCount={queueCount}
-        initialQuizMode={settings?.preferQuizMode ?? false}
         subjects={subjects}
         initialTopicId={topicId}
-        forceQuizMode
       />
     )
   }
@@ -117,7 +114,6 @@ export default async function FlashcardsPage({
       email={dbUser.email}
       pomodoroMin={settings?.pomodoroMin ?? 25}
       initialQueueCount={queueCount}
-      initialQuizMode={settings?.preferQuizMode ?? false}
       subjects={subjects}
     />
   )

@@ -6,9 +6,11 @@ import { Play, Pause, RotateCw, Save } from "lucide-react";
 interface StudyTimerProps {
   onSave: (seconds: number) => void;
   isSaving?: boolean;
+  elapsedRef?: React.MutableRefObject<number>;
+  onReset?: () => void;
 }
 
-export function StudyTimer({ onSave, isSaving }: StudyTimerProps) {
+export function StudyTimer({ onSave, isSaving, elapsedRef, onReset }: StudyTimerProps) {
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -16,7 +18,8 @@ export function StudyTimer({ onSave, isSaving }: StudyTimerProps) {
 
   useEffect(() => {
     timeElapsedRef.current = timeElapsed;
-  }, [timeElapsed]);
+    if (elapsedRef) elapsedRef.current = timeElapsed;
+  }, [timeElapsed, elapsedRef]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -38,6 +41,7 @@ export function StudyTimer({ onSave, isSaving }: StudyTimerProps) {
   function reset() {
     setIsRunning(false);
     setTimeElapsed(0);
+    if (onReset) onReset();
   }
 
   function handleSave() {

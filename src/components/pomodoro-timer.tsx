@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Play, Pause, RotateCw, Timer } from "lucide-react"
 
 interface PomodoroTimerProps {
@@ -9,6 +9,7 @@ interface PomodoroTimerProps {
   mini?: boolean
   autoStart?: boolean
   onTick?: (secondsRemaining: number) => void
+  onSaveSession?: (elapsedSeconds: number) => void
 }
 
 export function PomodoroTimer({
@@ -17,12 +18,15 @@ export function PomodoroTimer({
   mini = false,
   autoStart = false,
   onTick,
+  onSaveSession,
 }: PomodoroTimerProps) {
   const [timeLeft, setTimeLeft] = useState(durationMin * 60)
   const [isRunning, setIsRunning] = useState(autoStart)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const timeLeftRef = useRef(timeLeft)
   const onTickRef = useRef(onTick)
+  const hasSavedRef = useRef(false)
+  const sessionStartTimeRef = useRef<number | null>(null)
 
   useEffect(() => {
     timeLeftRef.current = timeLeft
@@ -32,10 +36,57 @@ export function PomodoroTimer({
     onTickRef.current = onTick
   }, [onTick])
 
+  const getElapsedSeconds = useCallback(
+    () => durationMin * 60 - timeLeftRef.current,
+    [durationMin]
+  )
+
+  const recordStudyTimeBeacon = useCallback(() => {
+    if (hasSavedRef.current) return
+    if (!sessionStartTimeRef.current) return
+    const elapsed = getElapsedSeconds()
+    if (elapsed <= 0) return
+    hasSavedRef.current = true
+    const minutes = Math.max(1, Math.round(elapsed / 60))
+    const data = new URLSearchParams({
+      subjectId: "",
+      topicId: "",
+      minutes: String(minutes),
+    })
+    navigator.sendBeacon("/api/study-sessions", data)
+  }, [getElapsedSeconds])
+
+  const recordStudyTime = useCallback(() => {
+    if (hasSavedRef.current) return
+    if (!sessionStartTimeRef.current) return
+    const elapsed = getElapsedSeconds()
+    if (elapsed <= 0) return
+    hasSavedRef.current = true
+    if (onSaveSession) onSaveSession(elapsed)
+  }, [getElapsedSeconds, onSaveSession])
+
+  useEffect(() => {
+    if (!isRunning || !sessionStartTimeRef.current) return
+
+    const handleBeforeUnload = () => {
+      recordStudyTimeBeacon()
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      recordStudyTime()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning, sessionStartTimeRef.current])
+
   useEffect(() => {
     if (!isRunning) {
       if (intervalRef.current) clearInterval(intervalRef.current)
       return
+    }
+    if (!sessionStartTimeRef.current) {
+      sessionStartTimeRef.current = Date.now()
     }
     intervalRef.current = setInterval(() => {
       const next = timeLeftRef.current - 1
@@ -44,6 +95,7 @@ export function PomodoroTimer({
         setIsRunning(false)
         setTimeLeft(0)
         if (onTickRef.current) onTickRef.current(0)
+        recordStudyTime()
         return
       }
       setTimeLeft(next)
@@ -52,7 +104,7 @@ export function PomodoroTimer({
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [isRunning])
+  }, [isRunning, recordStudyTime])
 
   useEffect(() => {
     setTimeLeft(durationMin * 60)
@@ -69,6 +121,8 @@ export function PomodoroTimer({
     setIsRunning(false)
     setTimeLeft(durationMin * 60)
     if (onTick) onTick(durationMin * 60)
+    hasSavedRef.current = false
+    sessionStartTimeRef.current = null
   }
 
   const minutes = Math.floor(timeLeft / 60)

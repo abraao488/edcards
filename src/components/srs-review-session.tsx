@@ -10,7 +10,6 @@ import {
   submitSRSReview,
   submitFirstReview,
   resetSRSProgressCycle,
-  evaluateAnswerWithAI,
 } from "@/lib/srs"
 import type { DifficultyStage } from "@/lib/srs-review-utils"
 import {
@@ -220,55 +219,45 @@ export function SRSReviewSession({
     }
   }
 
+  // Modo consulta: apenas revela gabarito (currentCard.flashcard.back) para autoavaliação visual — sem IA, sem difficulty, sem ProgressCard
+  const handleNextQuizCard = () => {
+    if (!currentCard) return
+    if (currentIndex + 1 < cards.length) {
+      setCurrentIndex((prev) => prev + 1)
+      setStep("TYPING")
+      setInputValue("")
+      setLastDifficulty(null)
+      setAiFeedback(null)
+      setAiError(null)
+      setEvalMode("CHOICE")
+    } else {
+      recordStudyTime()
+      setCards([])
+      setIsFocused(false)
+      setStep("START")
+      router.push("/materias")
+    }
+  }
+
   const handleConfirmReview = async (manualDifficulty?: DifficultyStage) => {
     if (!currentCard || loading) return
+    if (isQuizMode) return // consulta: use handleNextQuizCard, não chama IA nem atualiza banco
     setLoading(true)
     setAiError(null)
     setStep("EVALUATING")
 
     try {
-      let difficulty: DifficultyStage
-
-      if (isQuizMode) {
-        if (manualDifficulty) {
-          difficulty = manualDifficulty
-          setAiFeedback(null)
-        } else {
-          let evaluation
-          try {
-            evaluation = await evaluateAnswerWithAI(
-              currentCard.flashcard.front,
-              currentCard.flashcard.back,
-              inputValue,
-              userId
-            )
-          } catch (aiErr) {
-            console.error("Erro na avaliação com IA:", aiErr)
-            setAiError(
-              aiErr instanceof Error
-                ? `Erro na avaliação com IA: ${aiErr.message}`
-                : "Erro desconhecido na avaliação com IA."
-            )
-            setLoading(false)
-            setStep("COMPARING")
-            return
-          }
-          difficulty = evaluation.difficulty
-          setAiFeedback(evaluation.feedback)
-        }
-      } else {
-        const result = await submitSRSReview(
-          currentCard.id,
-          inputValue,
-          userId,
-          manualDifficulty
-        )
-        difficulty = result.difficulty
-        setAiFeedback(result.feedback ?? null)
-      }
+      const result = await submitSRSReview(
+        currentCard.id,
+        inputValue,
+        userId,
+        manualDifficulty
+      )
+      const difficulty = result.difficulty
+      setAiFeedback(result.feedback ?? null)
 
       setLastDifficulty(difficulty)
-      if (!isQuizMode) decrementQueue()
+      decrementQueue()
       setStep("FEEDBACK")
       setLoading(false)
 
@@ -631,41 +620,57 @@ export function SRSReviewSession({
                   </div>
                 </div>
 
-                {/* RESOLUTION OPTIONS FOR SUBSEQUENT REVIEWS */}
-                {!showFirstTimeUI && evalMode === "CHOICE" && (
+                {/* Modo consulta (isQuizMode): apenas revela gabarito (currentCard.flashcard.back) para autoavaliação visual — sem IA, sem difficulty, sem ProgressCard */}
+                {isQuizMode ? (
                   <div className="pt-4 border-t border-border/40 text-center space-y-3">
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
-                      Como avaliar sua resposta?
+                      Autoavaliação visual — compare com o gabarito acima
                     </span>
-                    <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
-                      <button
-                        onClick={() => setEvalMode("AUTO")}
-                        className="flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 hover:bg-secondary hover:border-primary/40 px-4 py-3 text-sm font-semibold text-foreground transition-all shadow-sm"
-                      >
-                        <User className="h-4 w-4 text-primary" />
-                        Autoavaliar
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEvalMode("AI")
-                          handleConfirmReview()
-                        }}
-                        className="flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 px-4 py-3 text-sm font-semibold text-primary transition-all shadow-[0_0_15px_rgba(0,212,255,0.15)]"
-                      >
-                        <Sparkles className="h-4 w-4" />
-                        Analisar com IA
-                      </button>
-                    </div>
-                    {aiError && (
-                      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-                        {aiError}
-                      </div>
-                    )}
+                    <button
+                      onClick={handleNextQuizCard}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
+                    >
+                      Próximo card
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
                   </div>
+                ) : (
+                  !showFirstTimeUI &&
+                  evalMode === "CHOICE" && (
+                    <div className="pt-4 border-t border-border/40 text-center space-y-3">
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
+                        Como avaliar sua resposta?
+                      </span>
+                      <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
+                        <button
+                          onClick={() => setEvalMode("AUTO")}
+                          className="flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 hover:bg-secondary hover:border-primary/40 px-4 py-3 text-sm font-semibold text-foreground transition-all shadow-sm"
+                        >
+                          <User className="h-4 w-4 text-primary" />
+                          Autoavaliar
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEvalMode("AI")
+                            handleConfirmReview()
+                          }}
+                          className="flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 px-4 py-3 text-sm font-semibold text-primary transition-all shadow-[0_0_15px_rgba(0,212,255,0.15)]"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          Analisar com IA
+                        </button>
+                      </div>
+                      {aiError && (
+                        <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+                          {aiError}
+                        </div>
+                      )}
+                    </div>
+                  )
                 )}
 
-                {/* SELF EVALUATION BUTTONS (EASY, MEDIUM, HARD) */}
-                {!showFirstTimeUI && evalMode === "AUTO" && (
+                {/* SELF EVALUATION BUTTONS (EASY, MEDIUM, HARD) — apenas modo real */}
+                {!isQuizMode && !showFirstTimeUI && evalMode === "AUTO" && (
                   <div className="pt-4 border-t border-border/40 text-center space-y-3 animate-in fade-in duration-200">
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
                       Selecione a dificuldade

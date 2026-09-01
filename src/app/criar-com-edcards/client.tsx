@@ -9,6 +9,8 @@ import {
   generateFlashcardsFromText,
   generateFlashcardsFromPDF,
   injectFlashcardsToDatabase,
+  getOrCreateConversation,
+  saveMessage,
 } from "@/lib/ai/actions"
 
 type Message = {
@@ -27,8 +29,31 @@ export function CriarComEdcardsClient() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
   const [pdfError, setPdfError] = useState<string | null>(null)
+  const [isLoadingConversation, setIsLoadingConversation] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const conversationIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    async function loadConversation() {
+      try {
+        const conversation = await getOrCreateConversation()
+        conversationIdRef.current = conversation.id
+        const loadedMessages: Message[] = conversation.messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          type: "text" as const,
+        }))
+        setMessages(loadedMessages)
+      } catch (err) {
+        console.error("Erro ao carregar conversa:", err)
+      } finally {
+        setIsLoadingConversation(false)
+      }
+    }
+    loadConversation()
+  }, [])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -79,6 +104,12 @@ export function CriarComEdcardsClient() {
     setAttachedFile(null)
     setIsProcessing(true)
 
+    if (conversationIdRef.current) {
+      saveMessage(conversationIdRef.current, "user", userMessage.content).catch(
+        console.error
+      )
+    }
+
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
@@ -97,34 +128,52 @@ export function CriarComEdcardsClient() {
       formData.append("pdf", attachedFile)
       const flashcards = await generateFlashcardsFromPDF(formData)
 
+      const finalContent = `Aqui estao ${flashcards.length} flashcards gerados do PDF:`
+
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === processingMessage.id
             ? {
                 ...msg,
-                content: `Aqui estao ${flashcards.length} flashcards gerados do PDF:`,
+                content: finalContent,
                 type: "flashcards",
                 flashcards,
               }
             : msg
         )
       )
+
+      if (conversationIdRef.current) {
+        saveMessage(
+          conversationIdRef.current,
+          "assistant",
+          finalContent
+        ).catch(console.error)
+      }
     } catch (err) {
       console.error("Erro ao gerar flashcards do PDF:", err)
+      const errorContent =
+        err instanceof Error
+          ? err.message
+          : "Nao consegui gerar os flashcards do PDF. Tente novamente."
+
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === processingMessage.id
             ? {
                 ...msg,
-                content:
-                  err instanceof Error
-                    ? err.message
-                    : "Nao consegui gerar os flashcards do PDF. Tente novamente.",
+                content: errorContent,
                 type: "text",
               }
             : msg
         )
       )
+
+      if (conversationIdRef.current) {
+        saveMessage(conversationIdRef.current, "assistant", errorContent).catch(
+          console.error
+        )
+      }
     } finally {
       setIsProcessing(false)
     }
@@ -148,6 +197,12 @@ export function CriarComEdcardsClient() {
     setInput("")
     setIsProcessing(true)
 
+    if (conversationIdRef.current) {
+      saveMessage(conversationIdRef.current, "user", userMessage.content).catch(
+        console.error
+      )
+    }
+
     const processingMessage: Message = {
       id: (Date.now() + 1).toString(),
       role: "assistant",
@@ -160,32 +215,50 @@ export function CriarComEdcardsClient() {
     try {
       const flashcards = await generateFlashcardsFromText(userMessage.content)
 
+      const finalContent = `Aqui estao ${flashcards.length} flashcards gerados automaticamente:`
+
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === processingMessage.id
             ? {
                 ...msg,
-                content: `Aqui estao ${flashcards.length} flashcards gerados automaticamente:`,
+                content: finalContent,
                 type: "flashcards",
                 flashcards,
               }
             : msg
         )
       )
+
+      if (conversationIdRef.current) {
+        saveMessage(
+          conversationIdRef.current,
+          "assistant",
+          finalContent
+        ).catch(console.error)
+      }
     } catch (err) {
       console.error("Erro ao gerar flashcards:", err)
+      const errorContent =
+        "Nao consegui gerar os flashcards agora, tenta de novo. Se o problema persistir, o servico de IA pode estar indisponivel."
+
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === processingMessage.id
             ? {
                 ...msg,
-                content:
-                  "Nao consegui gerar os flashcards agora, tenta de novo. Se o problema persistir, o servico de IA pode estar indisponivel.",
+                content: errorContent,
                 type: "text",
               }
             : msg
         )
       )
+
+      if (conversationIdRef.current) {
+        saveMessage(conversationIdRef.current, "assistant", errorContent).catch(
+          console.error
+        )
+      }
     } finally {
       setIsProcessing(false)
     }
@@ -193,15 +266,21 @@ export function CriarComEdcardsClient() {
 
   const handleInjectCards = async (flashcards: { front: string; back: string }[]) => {
     await injectFlashcardsToDatabase(flashcards)
+    const injectMessage = "Flashcards injetados no seu banco de dados com sucesso!"
     setMessages((prev) => [
       ...prev,
       {
         id: Date.now().toString(),
         role: "assistant",
-        content: "Flashcards injetados no seu banco de dados com sucesso!",
+        content: injectMessage,
         type: "text",
       },
     ])
+    if (conversationIdRef.current) {
+      saveMessage(conversationIdRef.current, "assistant", injectMessage).catch(
+        console.error
+      )
+    }
   }
 
   return (
@@ -226,7 +305,13 @@ export function CriarComEdcardsClient() {
       </div>
       <div className="flex-1 flex flex-col gap-4">
         <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-          {messages.length === 0 && (
+          {isLoadingConversation && (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <p className="mt-2 text-sm">Carregando conversa...</p>
+            </div>
+          )}
+          {!isLoadingConversation && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <EmptyState
                 icon={Sparkles}

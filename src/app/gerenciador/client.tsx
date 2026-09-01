@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { ClipboardList, X, CheckCircle2, Settings } from "lucide-react"
 import { PomodoroTimer } from "@/components/pomodoro-timer"
 import { StudyTimer } from "@/components/study-timer"
@@ -45,6 +45,8 @@ export function GerenciadorClient({
   const [showReviewModal, setShowReviewModal] = useState(false)
   const [isScheduling, setIsScheduling] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null)
+  const hasSavedRef = useRef(false)
+  const studyTimerSecondsRef = useRef(0)
 
   useEffect(() => {
     async function loadData() {
@@ -64,6 +66,8 @@ export function GerenciadorClient({
 
   const handleSaveStudySession = async (seconds: number) => {
     if (seconds === 0) return
+    if (hasSavedRef.current) return
+    hasSavedRef.current = true
     setIsSaving(true)
     try {
       const minutes = Math.ceil(seconds / 60)
@@ -77,11 +81,47 @@ export function GerenciadorClient({
         setShowReviewModal(true)
       }
     } catch (err) {
+      hasSavedRef.current = false
       showToast(err instanceof Error ? err.message : "Erro ao salvar sessão", "error")
     } finally {
       setIsSaving(false)
     }
   }
+
+  const recordStudyTimeBeacon = useCallback(() => {
+    if (hasSavedRef.current) return
+    const elapsed = studyTimerSecondsRef.current
+    if (elapsed <= 0) return
+    hasSavedRef.current = true
+    const minutes = Math.max(1, Math.round(elapsed / 60))
+    const data = new URLSearchParams({
+      subjectId: selectedSubjectId || "",
+      topicId: selectedTopicId || "",
+      minutes: String(minutes),
+    })
+    navigator.sendBeacon("/api/study-sessions", data)
+  }, [selectedSubjectId, selectedTopicId])
+
+  const recordStudyTime = useCallback(() => {
+    if (hasSavedRef.current) return
+    const elapsed = studyTimerSecondsRef.current
+    if (elapsed <= 0) return
+    hasSavedRef.current = true
+    handleSaveStudySession(elapsed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSubjectId, selectedTopicId])
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      recordStudyTimeBeacon()
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      recordStudyTime()
+    }
+  }, [recordStudyTimeBeacon, recordStudyTime])
 
   const handleScheduleReviews = async (scheduleType: "standard" | "intensive" | "custom") => {
     if (!selectedTopicId) return
@@ -250,7 +290,7 @@ export function GerenciadorClient({
           </div>
 
           {/* Study Timer */}
-          <StudyTimer onSave={handleSaveStudySession} isSaving={isSaving} />
+          <StudyTimer onSave={handleSaveStudySession} isSaving={isSaving} elapsedRef={studyTimerSecondsRef} onReset={() => { hasSavedRef.current = false }} />
         </div>
 
         {/* Sidebar Column - Pomodoro and Upcoming Cards */}

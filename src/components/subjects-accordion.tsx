@@ -9,6 +9,7 @@ import {
   Folder,
   BookOpen,
   PlayCircle,
+  Eye,
   Plus,
   Trash2,
   CheckCircle,
@@ -423,13 +424,23 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
 
                             <div className="flex items-center gap-2 self-start sm:self-center pt-2 sm:pt-0">
                               {topic._count.flashcards > 0 ? (
-                                <Link
-                                  href={`/flashcards?topicId=${topic.id}`}
-                                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 border border-primary/25 hover:bg-primary px-4 py-2 text-xs font-bold text-primary hover:text-primary-foreground transition-all duration-300 hover:shadow-[0_0_10px_rgba(0,229,255,0.25)]"
-                                >
-                                  <PlayCircle className="h-4 w-4" />
-                                  Resolver flashcards do assunto
-                                </Link>
+                                <div className="flex flex-wrap gap-2">
+                                  <Link
+                                    href={`/flashcards?topicId=${topic.id}`}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 border border-primary/25 hover:bg-primary px-4 py-2 text-xs font-bold text-primary hover:text-primary-foreground transition-all duration-300 hover:shadow-[0_0_10px_rgba(0,229,255,0.25)]"
+                                  >
+                                    <PlayCircle className="h-4 w-4" />
+                                    Revisar (SRS + IA)
+                                  </Link>
+                                  <Link
+                                    href={`/dashboard/flashcards/consultation?topicId=${topic.id}`}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-4 py-2 text-xs font-semibold text-foreground transition-colors"
+                                    title="Consulta visual — apenas revela o gabarito, sem IA e sem atualizar ProgressCard"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                    Consultar (visual)
+                                  </Link>
+                                </div>
                               ) : (
                                 <span className="rounded-lg border border-dashed border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground select-none">
                                   Sem cards cadastrados
