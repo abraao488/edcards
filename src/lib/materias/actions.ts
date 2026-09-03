@@ -20,6 +20,7 @@ export async function getSubjectsWithTopicCounts(
   userId: string
 ): Promise<SubjectWithTopicsAndCounts[]> {
   const subjects = await prisma.subject.findMany({
+    where: { userId },
     include: {
       topics: {
         orderBy: { name: "asc" },

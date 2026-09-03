@@ -17,12 +17,18 @@ export default async function GerenciadorPage() {
     redirect("/login")
   }
 
-  const [dbUser, settings, upcomingCards] = await Promise.all([
+  const [dbUser, settings, upcomingCards, studyHistory] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
     }),
     prisma.userSettings.findUnique({ where: { userId: user.id } }),
     getUpcomingFlashcards(),
+    prisma.studySession.findMany({
+      where: { userId: user.id },
+      include: { subject: true, topic: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
   ])
 
   if (!dbUser) {
@@ -39,6 +45,7 @@ export default async function GerenciadorPage() {
 
           <GerenciadorClient
             initialUpcomingCards={upcomingCards}
+            initialHistory={studyHistory}
             pomodoroMin={settings?.pomodoroMin ?? 25}
             breakDuration={settings?.breakDuration ?? 5}
           />

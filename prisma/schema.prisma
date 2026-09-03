@@ -60,6 +60,7 @@ model User {
   reviews           FlashcardReview[]
   studySchedules    StudySchedule[]
   studySessions     StudySession[]
+  subjects          Subject[]
 }
 
 model Profile {
@@ -81,12 +82,13 @@ model Subscription {
   id              String             @id @default(uuid())
   userId          String             @unique
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mercadopagoId   String             @unique
+  mercadopagoId   String?            @unique
   status          SubscriptionStatus @default(PENDING)
   plan            PlanType           @default(INDIVIDUAL)
   maxProfiles     Int                @default(1)
   paymentMethod   String?
   nextBillingDate DateTime?
+  accessExpiresAt DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 }
@@ -183,9 +185,13 @@ model StudyLog {
 
 model Subject {
   id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   name          String
   topics        Topic[]
   studySessions StudySession[]
+
+  @@index([userId])
 }
 
 model Topic {
@@ -275,14 +281,18 @@ model StudySession {
   id              String   @id @default(uuid())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String?
   subjectId       String?
   subject         Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   topicId         String?
   topic           Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
   durationMinutes Int
+  startedAt       DateTime?
+  endedAt         DateTime?
   createdAt       DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([userId, startedAt])
 }
 
 model ScheduleItem {

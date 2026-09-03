@@ -43,6 +43,7 @@ export async function generateReverseSchedule(
   const studyDays = daysBetween - reviewDays
 
   const allTopics = await prisma.topic.findMany({
+    where: { subject: { userId: user.id } },
     include: { subject: true },
   })
 
@@ -132,8 +133,8 @@ export async function getScheduleWithDetails(
 
   // Fetch all subjects and topics to map them manually
   const [allSubjects, allTopics] = await Promise.all([
-    prisma.subject.findMany(),
-    prisma.topic.findMany(),
+    prisma.subject.findMany({ where: { userId: user.id } }),
+    prisma.topic.findMany({ where: { subject: { userId: user.id } } }),
   ])
 
   const subjectMap = new Map(allSubjects.map((s) => [s.id, s]))

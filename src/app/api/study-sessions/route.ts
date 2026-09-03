@@ -15,6 +15,9 @@ export async function POST(request: Request) {
     let subjectId: string | null = null
     let topicId: string | null = null
     let minutes: number | null = null
+    let name: string | null = null
+    let startedAt: Date | null = null
+    let endedAt: Date | null = null
 
     const contentType = request.headers.get("content-type") || ""
     if (contentType.includes("application/json")) {
@@ -22,12 +25,20 @@ export async function POST(request: Request) {
       subjectId = body.subjectId ?? null
       topicId = body.topicId ?? null
       minutes = body.minutes ?? null
+      name = body.name ?? null
+      startedAt = body.startedAt ? new Date(body.startedAt) : null
+      endedAt = body.endedAt ? new Date(body.endedAt) : null
     } else {
       const form = await request.formData()
       subjectId = (form.get("subjectId") as string) || null
       topicId = (form.get("topicId") as string) || null
       const m = form.get("minutes")
       minutes = typeof m === "string" ? Number(m) : null
+      name = (form.get("name") as string) || null
+      const s = form.get("startedAt") as string | null
+      const e = form.get("endedAt") as string | null
+      startedAt = s ? new Date(s) : null
+      endedAt = e ? new Date(e) : null
     }
 
     if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes <= 0) {
@@ -40,12 +51,20 @@ export async function POST(request: Request) {
       update: {},
     })
 
+    const now = new Date()
+    const finalEndedAt = endedAt ?? now
+    const finalStartedAt =
+      startedAt ?? new Date(finalEndedAt.getTime() - Math.round(minutes) * 60 * 1000)
+
     await prisma.studySession.create({
       data: {
         userId: user.id,
+        name: name?.trim() || null,
         subjectId,
         topicId,
         durationMinutes: Math.round(minutes),
+        startedAt: finalStartedAt,
+        endedAt: finalEndedAt,
       },
     })
 

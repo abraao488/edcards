@@ -11,7 +11,13 @@ async function resolveActiveUser() {
     where: { userId: user.id },
   })
 
-  if (!sub || sub.status !== "ACTIVE") return null
+  if (!sub) return null
+
+  const hasActiveAccess =
+    sub.status === "ACTIVE" ||
+    (sub.accessExpiresAt !== null && sub.accessExpiresAt > new Date())
+
+  if (!hasActiveAccess) return null
 
   return user
 }

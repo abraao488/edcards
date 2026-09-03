@@ -81,5 +81,5 @@ export async function register(_prevState: AuthState, formData: FormData): Promi
   }
 
   revalidatePath("/dashboard")
-  redirect("/dashboard")
+  redirect("/bem-vindo")
 }

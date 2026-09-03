@@ -39,8 +39,8 @@ export default async function ConsultationPage({
   let subject: { id: string; name: string } | null = null
 
   if (topicId) {
-    const topic = await prisma.topic.findUnique({
-      where: { id: topicId },
+    const topic = await prisma.topic.findFirst({
+      where: { id: topicId, subject: { userId: user.id } },
       include: { subject: true },
     })
     if (!topic) {
@@ -107,8 +107,8 @@ export default async function ConsultationPage({
   }
 
   const [subjectFetched, activeProfile, settings, queueCount] = await Promise.all([
-    prisma.subject.findUnique({
-      where: { id: subjectId! },
+    prisma.subject.findFirst({
+      where: { id: subjectId!, userId: user.id },
     }),
     getOrCreateActiveProfile(user.id, user.email || ""),
     prisma.userSettings.findUnique({

@@ -12,6 +12,28 @@ interface SubscriptionResponse {
   status: string
 }
 
+interface CreatePixPaymentParams {
+  amount: number
+  description: string
+  externalReference: string
+  payerEmail: string
+}
+
+export interface PixPaymentResponse {
+  id: number
+  status: string
+  transaction_details?: {
+    total_paid_amount?: number
+  }
+  point_of_interaction?: {
+    transaction_data?: {
+      qr_code_base64?: string
+      qr_code?: string
+      ticket_url?: string
+    }
+  }
+}
+
 export async function createSubscription({
   payerEmail,
   reason,
@@ -60,6 +82,57 @@ export async function getPreApproval(id: string) {
   if (!res.ok) {
     const err = await res.text()
     console.error("[MercadoPago] getPreApproval failed:", res.status, err)
+    throw new Error(`Mercado Pago API error: ${res.status} - ${err}`)
+  }
+
+  return res.json()
+}
+
+export async function createPixPayment({
+  amount,
+  description,
+  externalReference,
+  payerEmail,
+}: CreatePixPaymentParams): Promise<PixPaymentResponse> {
+  const res = await fetch(`${MERCADOPAGO_BASE}/v1/payments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}`,
+    },
+    body: JSON.stringify({
+      transaction_amount: amount,
+      description,
+      external_reference: externalReference,
+      payment_method_id: "pix",
+      payer: {
+        email: payerEmail,
+      },
+    }),
+    signal: AbortSignal.timeout(30000),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    console.error("[MercadoPago] createPixPayment failed:", res.status, err)
+    throw new Error(`Mercado Pago API error: ${res.status} - ${err}`)
+  }
+
+  return res.json()
+}
+
+export async function getPayment(id: number) {
+  const res = await fetch(`${MERCADOPAGO_BASE}/v1/payments/${id}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}`,
+    },
+    signal: AbortSignal.timeout(15000),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    console.error("[MercadoPago] getPayment failed:", res.status, err)
     throw new Error(`Mercado Pago API error: ${res.status} - ${err}`)
   }
 

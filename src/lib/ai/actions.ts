@@ -253,8 +253,9 @@ export async function generateFlashcardsFromPDF(formData: FormData): Promise<Gen
  * Busca todas as matérias (Subject) e assuntos (Topic) do usuário para uso
  * como contexto nas chamadas de classificação via IA.
  */
-async function getUserSubjectsWithTopics(): Promise<SubjectTopicInfo[]> {
+async function getUserSubjectsWithTopics(userId: string): Promise<SubjectTopicInfo[]> {
   const subjects = await prisma.subject.findMany({
+    where: { userId },
     include: {
       topics: {
         orderBy: { name: "asc" },
@@ -428,7 +429,7 @@ export async function injectFlashcardsToDatabase(
     throw new Error("Nenhum perfil ativo encontrado")
   }
 
-  const subjectsContext = await getUserSubjectsWithTopics()
+  const subjectsContext = await getUserSubjectsWithTopics(user.id)
   const apiKey = process.env.GROQ_API_KEY || ""
 
   const classifiedCards: ClassifiedFlashcard[] = []

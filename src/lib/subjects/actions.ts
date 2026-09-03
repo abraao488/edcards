@@ -19,7 +19,7 @@ function revalidateCadastroPaths() {
 }
 
 export async function createSubject(name: string): Promise<{ success: true }> {
-  await ensureUserExists()
+  const user = await ensureUserExists()
 
   const trimmed = name.trim()
   if (!trimmed) {
@@ -27,7 +27,7 @@ export async function createSubject(name: string): Promise<{ success: true }> {
   }
 
   await prisma.subject.create({
-    data: { name: trimmed },
+    data: { name: trimmed, userId: user.id },
   })
 
   revalidateCadastroPaths()
@@ -38,7 +38,7 @@ export async function createTopic(
   subjectId: string,
   name: string
 ): Promise<{ success: true }> {
-  await ensureUserExists()
+  const user = await ensureUserExists()
 
   const trimmed = name.trim()
   if (!trimmed) {
@@ -48,8 +48,8 @@ export async function createTopic(
     throw new Error("Selecione uma matéria.")
   }
 
-  const subject = await prisma.subject.findUnique({
-    where: { id: subjectId },
+  const subject = await prisma.subject.findFirst({
+    where: { id: subjectId, userId: user.id },
   })
   if (!subject) {
     throw new Error("Matéria não encontrada.")
@@ -64,7 +64,12 @@ export async function createTopic(
 }
 
 export async function deleteSubject(id: string) {
-  await ensureUserExists()
+  const user = await ensureUserExists()
+
+  const subject = await prisma.subject.findFirst({
+    where: { id, userId: user.id },
+  })
+  if (!subject) throw new Error("Matéria não encontrada")
 
   // 1. Busca todos os topics da matéria
   const topics = await prisma.topic.findMany({
@@ -122,9 +127,11 @@ export async function deleteSubject(id: string) {
 }
 
 export async function deleteTopic(id: string) {
-  await ensureUserExists()
+  const user = await ensureUserExists()
 
-  const topic = await prisma.topic.findUnique({ where: { id } })
+  const topic = await prisma.topic.findFirst({
+    where: { id, subject: { userId: user.id } },
+  })
   if (!topic) throw new Error("Assunto não encontrado")
 
   // 1. Busca todos os flashcards do topic
@@ -162,9 +169,10 @@ export async function deleteTopic(id: string) {
 }
 
 export async function getSubjectsWithTopics(): Promise<SubjectWithTopics[]> {
-  await ensureUserExists()
+  const user = await ensureUserExists()
 
   return prisma.subject.findMany({
+    where: { userId: user.id },
     include: {
       topics: {
         orderBy: { name: "asc" },
@@ -176,6 +184,11 @@ export async function getSubjectsWithTopics(): Promise<SubjectWithTopics[]> {
 
 export async function getFlashcardsForConsultation(subjectId: string) {
   const user = await ensureUserExists()
+
+  const subject = await prisma.subject.findFirst({
+    where: { id: subjectId, userId: user.id },
+  })
+  if (!subject) throw new Error("Matéria não encontrada")
 
   return prisma.flashcard.findMany({
     where: {

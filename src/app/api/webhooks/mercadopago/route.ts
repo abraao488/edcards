@@ -2,7 +2,9 @@ import { NextResponse } from "next/server"
 import * as Sentry from "@sentry/nextjs"
 import crypto from "crypto"
 import { prisma } from "@/lib/prisma"
-import { getPreApproval } from "@/lib/mercadopago/client"
+import { getPreApproval, getPayment } from "@/lib/mercadopago/client"
+
+const PIX_ACCESS_DAYS = 30
 
 function verifySignature(
   body: string,
@@ -22,6 +24,79 @@ function verifySignature(
   const hmac = crypto.createHmac("sha256", secret).update(template).digest("hex")
 
   return hmac === v1
+}
+
+async function handlePixPayment(paymentId: number) {
+  const payment = await getPayment(paymentId)
+
+  if (payment.status !== "approved") {
+    console.log("[Webhook MP] Pix payment not approved:", paymentId, payment.status)
+    return
+  }
+
+  if (payment.payment_method_id !== "pix") {
+    console.log("[Webhook MP] Payment is not Pix:", paymentId, payment.payment_method_id)
+    return
+  }
+
+  const externalRef = payment.external_reference
+  if (!externalRef) {
+    console.error("[Webhook MP] Pix payment missing external_reference:", paymentId)
+    return
+  }
+
+  const accessExpiresAt = new Date()
+  accessExpiresAt.setDate(accessExpiresAt.getDate() + PIX_ACCESS_DAYS)
+
+  const existingSub = await prisma.subscription.findUnique({
+    where: { userId: externalRef },
+  })
+
+  if (existingSub) {
+    await prisma.subscription.update({
+      where: { userId: externalRef },
+      data: {
+        status: "ACTIVE",
+        paymentMethod: "pix",
+        accessExpiresAt,
+        mercadopagoId: existingSub.mercadopagoId || String(paymentId),
+      },
+    })
+  } else {
+    await prisma.subscription.create({
+      data: {
+        userId: externalRef,
+        mercadopagoId: String(paymentId),
+        status: "ACTIVE",
+        paymentMethod: "pix",
+        accessExpiresAt,
+      },
+    })
+  }
+
+  console.log("[Webhook MP] Pix payment processed for user:", externalRef, "expires:", accessExpiresAt)
+}
+
+async function handlePreApproval(preApprovalId: string) {
+  const preApproval = await getPreApproval(preApprovalId)
+
+  const statusMap: Record<string, string> = {
+    authorized: "ACTIVE",
+    paused: "PENDING",
+    cancelled: "CANCELED",
+  }
+
+  const newStatus = statusMap[preApproval.status] || "PENDING"
+
+  await prisma.subscription.update({
+    where: { mercadopagoId: preApprovalId },
+    data: {
+      status: newStatus as "ACTIVE" | "PENDING" | "CANCELED",
+      nextBillingDate: preApproval.next_payment_date
+        ? new Date(preApproval.next_payment_date)
+        : undefined,
+    },
+  })
 }
 
 export async function POST(request: Request) {
@@ -51,30 +126,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const preApproval = await getPreApproval(data.id)
+    const isPaymentEvent = typeof action === "string" && action.startsWith("payment.")
 
-    const statusMap: Record<string, string> = {
-      authorized: "ACTIVE",
-      paused: "PENDING",
-      cancelled: "CANCELED",
+    if (isPaymentEvent) {
+      await handlePixPayment(Number(data.id))
+    } else {
+      await handlePreApproval(String(data.id))
     }
-
-    const newStatus = statusMap[preApproval.status] || "PENDING"
-
-    await prisma.subscription.update({
-      where: { mercadopagoId: data.id },
-      data: {
-        status: newStatus as "ACTIVE" | "PENDING" | "CANCELED",
-        nextBillingDate: preApproval.next_payment_date
-          ? new Date(preApproval.next_payment_date)
-          : undefined,
-      },
-    })
   } catch (err) {
-    console.error("[Webhook MP] Error processing preapproval:", data.id, err)
+    console.error("[Webhook MP] Error processing event:", action, data.id, err)
     Sentry.captureException(err, {
       tags: { source: "webhook/mercadopago", action },
-      extra: { preapprovalId: data.id },
+      extra: { eventId: data.id },
     })
   }
 

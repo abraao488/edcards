@@ -11,7 +11,11 @@ import { getOrCreateActiveProfile } from "@/lib/profile/helpers"
 
 export const dynamic = "force-dynamic"
 
-export default async function ConfiguracoesPage() {
+export default async function ConfiguracoesPage({
+  searchParams,
+}: {
+  searchParams?: { welcome?: string; upgrade?: string }
+}) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -43,13 +47,27 @@ export default async function ConfiguracoesPage() {
 
   const [decks, cardsDue, materiaisCount, questoesCount] = stats
 
+  const isWelcome = searchParams?.welcome === "true"
+  const showPaymentHighlight =
+    isWelcome &&
+    !(
+      dbUser.subscription?.status === "ACTIVE" ||
+      (dbUser.subscription?.accessExpiresAt !== null &&
+        dbUser.subscription?.accessExpiresAt !== undefined &&
+        dbUser.subscription.accessExpiresAt > new Date())
+    )
+
   const subStatus = dbUser.subscription
     ? {
-        active: dbUser.subscription.status === "ACTIVE",
+        active:
+          dbUser.subscription.status === "ACTIVE" ||
+          (dbUser.subscription.accessExpiresAt !== null &&
+            dbUser.subscription.accessExpiresAt > new Date()),
         status: dbUser.subscription.status,
         plan: dbUser.subscription.plan,
         paymentMethod: dbUser.subscription.paymentMethod,
         nextBillingDate: dbUser.subscription.nextBillingDate?.toISOString(),
+        accessExpiresAt: dbUser.subscription.accessExpiresAt?.toISOString(),
       }
     : null
 
@@ -95,7 +113,25 @@ export default async function ConfiguracoesPage() {
                 concurrenceName={activeProfile.concurrenceName ?? ""}
               />
 
-              <div>
+              <div
+                id="assinatura"
+                className={
+                  showPaymentHighlight
+                    ? "scroll-mt-8 rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 shadow-[0_0_30px_rgba(0,212,255,0.08)]"
+                    : ""
+                }
+              >
+                {showPaymentHighlight && (
+                  <div className="mb-4 rounded-xl border border-primary/20 bg-card p-4">
+                    <p className="text-sm font-semibold text-foreground">
+                      Bem-vindo! Finalize seu acesso abaixo
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Escolha Pix (30 dias) ou Assinatura recorrente para liberar
+                      todos os recursos imediatamente.
+                    </p>
+                  </div>
+                )}
                 <h2 className="mb-4 text-lg font-semibold text-foreground">
                   Assinatura
                 </h2>

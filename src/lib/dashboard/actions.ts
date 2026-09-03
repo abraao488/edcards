@@ -27,7 +27,9 @@ export async function getDashboardMetrics() {
         },
       }),
       calculateStreak(user.id),
-      prisma.subject.count(),
+      prisma.subject.count({
+        where: { userId: user.id },
+      }),
     ])
 
   return {

@@ -7,7 +7,8 @@ import { getOrCreateActiveProfile } from "@/lib/profile/helpers";
 export async function saveStudySession(
   subjectId: string | null,
   topicId: string | null,
-  minutes: number
+  minutes: number,
+  options?: { name?: string | null; startedAt?: Date | null; endedAt?: Date | null }
 ) {
   const user = await ensureUserExists();
 
@@ -15,16 +16,36 @@ export async function saveStudySession(
     throw new Error("Duration must be positive");
   }
 
+  const now = new Date();
+  const endedAt = options?.endedAt ?? now;
+  const startedAt =
+    options?.startedAt ?? new Date(endedAt.getTime() - minutes * 60 * 1000);
+
   const session = await prisma.studySession.create({
     data: {
       userId: user.id,
+      name: options?.name?.trim() ? options.name.trim() : null,
       subjectId,
       topicId,
       durationMinutes: minutes,
+      startedAt,
+      endedAt,
     },
   });
 
   return session;
+}
+
+export async function getStudySessionsHistory() {
+  const user = await ensureUserExists();
+
+  const sessions = await prisma.studySession.findMany({
+    where: { userId: user.id },
+    include: { subject: true, topic: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return sessions;
 }
 
 export async function updateQuizModePreference(value: boolean) {
