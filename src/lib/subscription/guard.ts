@@ -13,9 +13,23 @@ async function resolveActiveUser() {
 
   if (!sub) return null
 
+  const now = new Date()
+
+  const billingExpired =
+    (sub.nextBillingDate !== null && sub.nextBillingDate <= now) ||
+    (sub.accessExpiresAt !== null && sub.accessExpiresAt <= now)
+
+  if (sub.status === "ACTIVE" && billingExpired) {
+    await prisma.subscription.update({
+      where: { userId: user.id },
+      data: { status: "PENDING" },
+    })
+    return null
+  }
+
   const hasActiveAccess =
     sub.status === "ACTIVE" ||
-    (sub.accessExpiresAt !== null && sub.accessExpiresAt > new Date())
+    (sub.accessExpiresAt !== null && sub.accessExpiresAt > now)
 
   if (!hasActiveAccess) return null
 

@@ -103,8 +103,21 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
           <h3 className="font-semibold text-foreground">Pagamento Pendente</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Seu pagamento está sendo processado. Assim que confirmado, sua assinatura será ativada.
+          Seu pagamento ainda não foi confirmado. Você pode tentar realizar o pagamento novamente.
         </p>
+        <button
+          onClick={handleSubscribe}
+          disabled={loading}
+          className="mt-4 flex items-center gap-2 rounded-xl border border-yellow-500/50 bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-yellow-500/10 disabled:opacity-50"
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-yellow-400" />
+          ) : (
+            <CreditCard className="h-4 w-4 text-yellow-400" />
+          )}
+          {loading ? "Redirecionando..." : "Tentar pagamento novamente"}
+        </button>
+        {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
       </div>
     )
   }

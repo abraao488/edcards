@@ -45,8 +45,11 @@ async function handlePixPayment(paymentId: number) {
     return
   }
 
-  const accessExpiresAt = new Date()
-  accessExpiresAt.setDate(accessExpiresAt.getDate() + PIX_ACCESS_DAYS)
+  const now = new Date()
+  const accessExpiresAt = new Date(now)
+  accessExpiresAt.setDate(now.getDate() + PIX_ACCESS_DAYS)
+  const nextBillingDate = new Date(now)
+  nextBillingDate.setDate(nextBillingDate.getDate() + PIX_ACCESS_DAYS)
 
   const existingSub = await prisma.subscription.findUnique({
     where: { userId: externalRef },
@@ -59,6 +62,7 @@ async function handlePixPayment(paymentId: number) {
         status: "ACTIVE",
         paymentMethod: "pix",
         accessExpiresAt,
+        nextBillingDate,
         mercadopagoId: existingSub.mercadopagoId || String(paymentId),
       },
     })
@@ -70,6 +74,7 @@ async function handlePixPayment(paymentId: number) {
         status: "ACTIVE",
         paymentMethod: "pix",
         accessExpiresAt,
+        nextBillingDate,
       },
     })
   }
@@ -88,13 +93,19 @@ async function handlePreApproval(preApprovalId: string) {
 
   const newStatus = statusMap[preApproval.status] || "PENDING"
 
+  const now = new Date()
+  const fallbackNextBilling = new Date(now)
+  fallbackNextBilling.setDate(fallbackNextBilling.getDate() + PIX_ACCESS_DAYS)
+
   await prisma.subscription.update({
     where: { mercadopagoId: preApprovalId },
     data: {
       status: newStatus as "ACTIVE" | "PENDING" | "CANCELED",
       nextBillingDate: preApproval.next_payment_date
         ? new Date(preApproval.next_payment_date)
-        : undefined,
+        : newStatus === "ACTIVE"
+          ? fallbackNextBilling
+          : undefined,
     },
   })
 }

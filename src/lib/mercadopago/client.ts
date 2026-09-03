@@ -99,6 +99,7 @@ export async function createPixPayment({
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}`,
+      "X-Idempotency-Key": crypto.randomUUID(),
     },
     body: JSON.stringify({
       transaction_amount: amount,
