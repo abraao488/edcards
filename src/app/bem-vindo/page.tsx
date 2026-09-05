@@ -3,6 +3,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
 import { SubscriptionManager } from "@/components/subscription-manager"
+import { SubscriptionStatusSync } from "@/components/subscription-status-sync"
 import { Sparkles, PartyPopper, ArrowRight } from "lucide-react"
 
 export const dynamic = "force-dynamic"
@@ -32,6 +33,11 @@ export default async function BemVindoPage() {
       (sub.accessExpiresAt !== null && sub.accessExpiresAt > new Date())
     : false
 
+  const pendingWithPayment = !!(
+    dbUser.subscription?.status === "PENDING" &&
+    dbUser.subscription?.mercadopagoId
+  )
+
   const subStatus = sub
     ? {
         active: isActive,
@@ -45,6 +51,7 @@ export default async function BemVindoPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SubscriptionStatusSync pendingWithPayment={pendingWithPayment} />
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute right-[-80px] top-[-80px] h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute bottom-[-40px] left-[10%] h-64 w-64 rounded-full bg-purple-500/10 blur-3xl" />

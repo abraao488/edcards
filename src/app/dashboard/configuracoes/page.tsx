@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
 import { SubscriptionManager } from "@/components/subscription-manager"
+import { SubscriptionStatusSync } from "@/components/subscription-status-sync"
 import { SettingsPanel } from "@/components/settings-panel"
 import { StatCard } from "@/components/stat-card"
 import { Sidebar } from "@/components/sidebar"
@@ -45,6 +46,11 @@ export default async function ConfiguracoesPage({
 
   const activeProfile = await getOrCreateActiveProfile(user.id, user.email || "")
 
+  const pendingWithPayment = !!(
+    dbUser.subscription?.status === "PENDING" &&
+    dbUser.subscription?.mercadopagoId
+  )
+
   const [decks, cardsDue, materiaisCount, questoesCount] = stats
 
   const isWelcome = searchParams?.welcome === "true"
@@ -73,6 +79,7 @@ export default async function ConfiguracoesPage({
 
   return (
     <div className="min-h-screen bg-background">
+      <SubscriptionStatusSync pendingWithPayment={pendingWithPayment} />
       <Sidebar email={dbUser.email} />
       <main className="pl-64">
         <div className="relative p-8">

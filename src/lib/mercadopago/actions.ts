@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
-import { createSubscription, createPixPayment } from "./client"
+import { createSubscription, createPixPayment, getPayment, getPreApproval } from "./client"
+import { activatePixAccess, applyPreApprovalStatus } from "./sync"
 
 const PIX_AMOUNT = 15
 const PIX_DESCRIPTION = "Edcards Premium — Acesso 30 dias"
@@ -132,5 +133,63 @@ export async function getSubscriptionStatus() {
     paymentMethod: sub.paymentMethod,
     nextBillingDate: sub.nextBillingDate,
     accessExpiresAt: sub.accessExpiresAt,
+  }
+}
+
+export async function syncSubscriptionStatus() {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { synced: false, reason: "unauthenticated" }
+
+  const sub = await prisma.subscription.findUnique({
+    where: { userId: user.id },
+  })
+  if (!sub) return { synced: false, reason: "no_subscription" }
+  if (sub.status !== "PENDING" || !sub.mercadopagoId) {
+    return { synced: false, reason: "not_pending", status: sub.status }
+  }
+
+  const isPix =
+    sub.paymentMethod === "pix" || /^\d+$/.test(sub.mercadopagoId)
+
+  try {
+    if (isPix) {
+      const payment = await getPayment(Number(sub.mercadopagoId))
+      console.log(
+        "[MercadoPago] sync: pix check payment",
+        sub.mercadopagoId,
+        "status:",
+        payment.status
+      )
+      if (payment.status === "approved") {
+        const accessExpiresAt = await activatePixAccess(
+          user.id,
+          sub.mercadopagoId
+        )
+        revalidatePath("/dashboard/configuracoes")
+        revalidatePath("/bem-vindo")
+        return { synced: true, updated: true, status: "ACTIVE", accessExpiresAt }
+      }
+      return { synced: true, updated: false, status: payment.status }
+    }
+
+    const preApproval = await getPreApproval(sub.mercadopagoId)
+    console.log(
+      "[MercadoPago] sync: preapproval check",
+      sub.mercadopagoId,
+      "status:",
+      preApproval.status
+    )
+    const result = await applyPreApprovalStatus(preApproval)
+    if (result.updated) {
+      revalidatePath("/dashboard/configuracoes")
+      revalidatePath("/bem-vindo")
+    }
+    return { synced: true, updated: result.updated, status: result.status }
+  } catch (err) {
+    console.error("[MercadoPago] syncSubscriptionStatus failed:", err)
+    return { synced: false, reason: "api_error" }
   }
 }
