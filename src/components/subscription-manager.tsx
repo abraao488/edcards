@@ -68,6 +68,46 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
     }
   }
 
+  const paymentOptions = (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <button
+        onClick={handleSubscribe}
+        disabled={loading || pixLoading}
+        className="flex items-center justify-center gap-3 rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50"
+      >
+        {loading ? (
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        ) : (
+          <CreditCard className="h-6 w-6 text-primary" />
+        )}
+        <div className="text-left">
+          <p className="font-semibold text-foreground">
+            {loading ? "Redirecionando..." : "Assinar agora"}
+          </p>
+          <p className="text-xs text-muted-foreground">Cartão · Recorrente</p>
+        </div>
+      </button>
+
+      <button
+        onClick={handlePix}
+        disabled={loading || pixLoading}
+        className="flex items-center justify-center gap-3 rounded-xl border border-border bg-card p-5 transition-colors hover:border-green-500/50 hover:bg-green-500/5 disabled:opacity-50"
+      >
+        {pixLoading ? (
+          <Loader2 className="h-6 w-6 animate-spin text-green-400" />
+        ) : (
+          <QrCode className="h-6 w-6 text-green-400" />
+        )}
+        <div className="text-left">
+          <p className="font-semibold text-foreground">
+            {pixLoading ? "Gerando QR Code..." : "Pagar com Pix"}
+          </p>
+          <p className="text-xs text-muted-foreground">30 dias · Sem renovação</p>
+        </div>
+      </button>
+    </div>
+  )
+
   if (sub?.active) {
     const isPix = sub.paymentMethod === "pix"
     return (
@@ -103,20 +143,12 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
           <h3 className="font-semibold text-foreground">Pagamento Pendente</h3>
         </div>
         <p className="text-sm text-muted-foreground">
-          Seu pagamento ainda não foi confirmado. Você pode tentar realizar o pagamento novamente.
+          Seu pagamento ainda não foi confirmado. Escolha novamente como deseja
+          realizar o pagamento.
         </p>
-        <button
-          onClick={handleSubscribe}
-          disabled={loading}
-          className="mt-4 flex items-center gap-2 rounded-xl border border-yellow-500/50 bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-yellow-500/10 disabled:opacity-50"
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-yellow-400" />
-          ) : (
-            <CreditCard className="h-4 w-4 text-yellow-400" />
-          )}
-          {loading ? "Redirecionando..." : "Tentar pagamento novamente"}
-        </button>
+        <div className="mt-4">
+          {paymentOptions}
+        </div>
         {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
       </div>
     )
@@ -214,42 +246,8 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
         </ul>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <button
-          onClick={handleSubscribe}
-          disabled={loading || pixLoading}
-          className="flex items-center justify-center gap-3 rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50"
-        >
-          {loading ? (
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          ) : (
-            <CreditCard className="h-6 w-6 text-primary" />
-          )}
-          <div className="text-left">
-            <p className="font-semibold text-foreground">
-              {loading ? "Redirecionando..." : "Assinar agora"}
-            </p>
-            <p className="text-xs text-muted-foreground">Cartão · Recorrente</p>
-          </div>
-        </button>
-
-        <button
-          onClick={handlePix}
-          disabled={loading || pixLoading}
-          className="flex items-center justify-center gap-3 rounded-xl border border-border bg-card p-5 transition-colors hover:border-green-500/50 hover:bg-green-500/5 disabled:opacity-50"
-        >
-          {pixLoading ? (
-            <Loader2 className="h-6 w-6 animate-spin text-green-400" />
-          ) : (
-            <QrCode className="h-6 w-6 text-green-400" />
-          )}
-          <div className="text-left">
-            <p className="font-semibold text-foreground">
-              {pixLoading ? "Gerando QR Code..." : "Pagar com Pix"}
-            </p>
-            <p className="text-xs text-muted-foreground">30 dias · Sem renovação</p>
-          </div>
-        </button>
+      <div className="mt-6">
+        {paymentOptions}
       </div>
 
       {error && (
