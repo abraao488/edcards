@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef, useCallback } from "react"
-import { ClipboardList, X, CheckCircle2, Settings, Clock, History } from "lucide-react"
+import { ClipboardList, X, CheckCircle2, Settings, Clock, History, Trash2 } from "lucide-react"
 import { PomodoroTimer } from "@/components/pomodoro-timer"
 import { StudyTimer } from "@/components/study-timer"
 import { SaveSessionModal } from "@/components/save-session-modal"
@@ -16,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { getSubjectsWithTopics } from "@/lib/subjects/actions"
-import { saveStudySession, scheduleTopicReviews } from "@/lib/study-sessions/actions"
+import { saveStudySession, scheduleTopicReviews, deleteStudySession } from "@/lib/study-sessions/actions"
 
 type UpcomingCard = Awaited<
   ReturnType<typeof import("@/lib/flashcards/upcoming-actions").getUpcomingFlashcards>
@@ -56,6 +57,7 @@ export function GerenciadorClient({
   pomodoroMin,
   breakDuration,
 }: GerenciadorClientProps) {
+  const router = useRouter()
   const [isBreak, setIsBreak] = useState(false)
   const [subjects, setSubjects] = useState<SubjectWithTopics[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null)
@@ -75,6 +77,8 @@ export function GerenciadorClient({
   } | null>(null)
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [activeTab, setActiveTab] = useState<"gerenciador" | "historico">("gerenciador")
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadData() {
@@ -136,6 +140,7 @@ export function GerenciadorClient({
       setShowSaveModal(false)
       setPendingSession(null)
       showToast("Sessão de estudo salva com sucesso!", "success")
+      router.refresh()
       if (selectedTopicId) {
         setShowReviewModal(true)
       }
@@ -183,10 +188,26 @@ export function GerenciadorClient({
       await scheduleTopicReviews(selectedTopicId, scheduleType)
       showToast("Revisões agendadas com sucesso!", "success")
       setShowReviewModal(false)
+      router.refresh()
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Erro ao agendar revisões", "error")
     } finally {
       setIsScheduling(false)
+    }
+  }
+
+  const handleDeleteSession = async (sessionId: string) => {
+    setDeletingId(sessionId)
+    try {
+      await deleteStudySession(sessionId)
+      setHistory((prev) => prev.filter((s) => s.id !== sessionId))
+      showToast("Sessão excluída com sucesso.", "success")
+      setConfirmDeleteId(null)
+      router.refresh()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Erro ao excluir sessão", "error")
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -224,6 +245,34 @@ export function GerenciadorClient({
         onDiscard={handleDiscardSave}
         isSaving={isSaving}
       />
+
+      {/* Delete Confirm Modal */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-[0_0_50px_rgba(0,212,255,0.15)] animate-in zoom-in-95 duration-200">
+            <h3 className="text-base font-semibold text-foreground">Excluir sessão?</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Essa ação não pode ser desfeita. Deseja realmente excluir esta sessão do histórico?
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={!!deletingId}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDeleteSession(confirmDeleteId)}
+                disabled={!!deletingId}
+                className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+              >
+                {deletingId === confirmDeleteId ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Review Modal */}
       {showReviewModal && (
@@ -538,9 +587,20 @@ export function GerenciadorClient({
                           )}
                         </div>
                       </div>
-                      <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                        {formatDurationMinutes(s.durationMinutes)}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                          {formatDurationMinutes(s.durationMinutes)}
+                        </span>
+                        <button
+                          onClick={() => setConfirmDeleteId(s.id)}
+                          disabled={deletingId === s.id}
+                          title="Excluir sessão"
+                          aria-label={`Excluir sessão ${s.name || s.id}`}
+                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   </Card>
                 )

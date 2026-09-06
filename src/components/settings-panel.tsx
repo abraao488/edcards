@@ -108,10 +108,10 @@ export function SettingsPanel({
         </div>
       )}
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Brain className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">Avaliação por IA</h3>
+      <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-sm transition-all duration-200 hover:border-foreground/10">
+        <div className="mb-3 flex items-center gap-2">
+          <Brain className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Avaliação por IA</h3>
         </div>
         <p className="mb-4 text-sm text-muted-foreground">
           Quando ativado, a IA classifica automaticamente a dificuldade dos seus
@@ -136,81 +136,81 @@ export function SettingsPanel({
         </span>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Timer className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">Pomodoro</h3>
+      <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-sm transition-all duration-200 hover:border-foreground/10">
+        <div className="mb-3 flex items-center gap-2">
+          <Timer className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Pomodoro</h3>
         </div>
-        <p className="mb-4 text-sm text-muted-foreground">
+        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
           Defina a duração padrão do cronômetro de estudo.
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <input
             type="number"
             value={pomodoro}
             onChange={(e) => setPomodoro(Number(e.target.value))}
             min={5}
             max={120}
-            className="w-20 rounded-lg border border-border bg-secondary px-3 py-2 text-foreground"
+            className="w-20 rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground transition-all duration-200 focus:border-primary focus:ring-1 focus:ring-primary"
           />
           <span className="text-sm text-muted-foreground">minutos</span>
           <button
             onClick={() => handleSavePomodoro(pomodoro)}
             disabled={savingPomodoro}
-            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-all duration-200 hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {savingPomodoro ? "Salvando..." : "Salvar"}
           </button>
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Coffee className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">Pausa</h3>
+      <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-sm transition-all duration-200 hover:border-foreground/10">
+        <div className="mb-3 flex items-center gap-2">
+          <Coffee className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Pausa</h3>
         </div>
-        <p className="mb-4 text-sm text-muted-foreground">
+        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
           Defina a duração padrão da pausa entre ciclos de estudo.
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <input
             type="number"
             value={breakDur}
             onChange={(e) => setBreakDur(Number(e.target.value))}
             min={1}
             max={60}
-            className="w-20 rounded-lg border border-border bg-secondary px-3 py-2 text-foreground"
+            className="w-20 rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground transition-all duration-200 focus:border-primary focus:ring-1 focus:ring-primary"
           />
           <span className="text-sm text-muted-foreground">minutos</span>
           <button
             onClick={() => handleSaveBreak(breakDur)}
             disabled={savingBreak}
-            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-all duration-200 hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {savingBreak ? "Salvando..." : "Salvar"}
           </button>
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Target className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">Concurso de Interesse</h3>
+      <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-sm transition-all duration-200 hover:border-foreground/10">
+        <div className="mb-3 flex items-center gap-2">
+          <Target className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h3 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Concurso de Interesse</h3>
         </div>
-        <p className="mb-4 text-sm text-muted-foreground">
+        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
           Defina o concurso que está estudando. Aparecerá no Dashboard.
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             type="text"
             value={concurrence}
             onChange={(e) => setConcurrence(e.target.value)}
             placeholder="Ex: Polícia Militar do Alagoas"
-            className="flex-1 rounded-lg border border-border bg-secondary px-3 py-2 text-foreground placeholder:text-muted-foreground"
+            className="flex-1 rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-all duration-200 focus:border-primary focus:ring-1 focus:ring-primary"
           />
           <button
             onClick={handleSaveConcurrence}
-            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-all duration-200 hover:bg-primary/90 active:scale-[0.98]"
           >
             {saved ? "Salvo!" : "Salvar"}
           </button>

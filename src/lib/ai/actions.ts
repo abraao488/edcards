@@ -478,6 +478,9 @@ export async function injectFlashcardsToDatabase(
   const uncategorizedCards = classifiedCards.filter((c) => c.uncategorized)
 
   revalidatePath("/dashboard/flashcards")
+  revalidatePath("/flashcards")
+  revalidatePath("/materias")
+  revalidatePath("/dashboard")
   revalidatePath("/criar-com-edcards")
 
   return {

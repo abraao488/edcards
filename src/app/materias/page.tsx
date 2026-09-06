@@ -31,24 +31,24 @@ export default async function MateriasPage() {
   return (
     <div className="min-h-screen bg-background">
       <Sidebar email={dbUser.email} />
-      <main className="pl-64">
-        <div className="relative p-8">
+      <main className="pt-14 lg:pl-64 lg:pt-0">
+        <div className="relative p-4 sm:p-6 lg:p-8">
           <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 rounded-full bg-primary/5 blur-3xl" />
           <div className="pointer-events-none absolute bottom-0 left-1/4 h-48 w-48 rounded-full bg-purple-500/5 blur-3xl" />
 
-          <div className="relative mb-8">
-            <div className="mb-2 flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-[0_0_15px_rgba(0,212,255,0.12)]">
-                <GraduationCap className="h-6 w-6" />
+          <div className="relative mb-6 sm:mb-8 animate-edcards-in">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-[0_0_15px_rgba(0,212,255,0.12)] sm:h-12 sm:w-12">
+                <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6" aria-hidden="true" />
               </div>
               <div>
-                <p className="mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.25em] text-primary">
+                <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.25em] text-primary sm:mb-1.5 sm:text-[11px]">
                   Seu acervo
                 </p>
-                <h1 className="text-4xl font-extrabold tracking-tighter text-foreground">
+                <h1 className="text-2xl font-extrabold tracking-tighter text-foreground sm:text-4xl">
                   Matérias e Assuntos
                 </h1>
-                <p className="mt-1.5 text-sm text-muted-foreground">
+                <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">
                   Crie matérias, organize assuntos e veja a quantidade de cards.
                 </p>
               </div>

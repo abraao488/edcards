@@ -1,5 +1,6 @@
 "use server"
 
+import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
 import type { ScheduleItem, Subject, Topic, StudySchedule } from "@prisma/client"
@@ -106,6 +107,11 @@ export async function generateReverseSchedule(
   if (!scheduleDetails) {
     throw new Error("Erro ao criar cronograma!")
   }
+
+  revalidatePath("/edital")
+  revalidatePath("/dashboard")
+  revalidatePath("/gerenciador")
+
   return {
     ...scheduleDetails,
     scheduleId: schedule.id,
@@ -193,4 +199,7 @@ export async function markScheduleItemCompleted(itemId: string) {
     where: { id: itemId },
     data: { completed: true },
   })
+
+  revalidatePath("/edital")
+  revalidatePath("/dashboard")
 }

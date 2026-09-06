@@ -45,8 +45,8 @@ export function ProfileForm({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card p-6">
-      <h2 className="mb-4 text-lg font-semibold text-foreground">
+    <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-sm transition-all duration-200 hover:border-foreground/10">
+      <h2 className="mb-4 text-base font-semibold tracking-tight text-foreground sm:text-lg">
         Perfil e Dados Cadastrais
       </h2>
 

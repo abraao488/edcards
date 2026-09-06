@@ -81,17 +81,18 @@ export default async function ConfiguracoesPage({
     <div className="min-h-screen bg-background">
       <SubscriptionStatusSync pendingWithPayment={pendingWithPayment} />
       <Sidebar email={dbUser.email} />
-      <main className="pl-64">
-        <div className="relative p-8">
+      <main className="pt-14 lg:pl-64 lg:pt-0">
+        <div className="relative p-4 sm:p-6 lg:p-8">
           <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 rounded-full bg-primary/5 blur-3xl" />
           <div className="pointer-events-none absolute bottom-0 left-1/3 h-48 w-48 rounded-full bg-purple-500/5 blur-3xl" />
 
-          <div className="max-w-2xl mx-auto">
-            <h1 className="mb-8 text-3xl font-bold text-foreground">
+          <div className="mx-auto max-w-2xl animate-edcards-in">
+            <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.25em] text-primary">Ajustes</p>
+            <h1 className="mb-6 text-2xl font-bold tracking-tight text-foreground sm:mb-8 sm:text-3xl">
               Configurações
             </h1>
 
-            <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:grid-cols-4 sm:gap-4">
               <StatCard label="Baralhos" value={decks} />
               <StatCard label="Cards para revisar" value={cardsDue} />
               <StatCard label="Materiais" value={materiaisCount} />

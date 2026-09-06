@@ -53,7 +53,10 @@ export async function organizeOverdueCards() {
   }
 
   revalidatePath("/dashboard/flashcards")
+  revalidatePath("/flashcards")
+  revalidatePath("/dashboard")
   revalidatePath("/organizar")
+  revalidatePath("/gerenciador")
 
   return { count: overdueCards.length }
 }

@@ -13,9 +13,10 @@ export interface SubjectWithTopics {
 function revalidateCadastroPaths() {
   revalidatePath("/cadastrar")
   revalidatePath("/materias")
-  revalidatePath("/materias")
   revalidatePath("/dashboard/flashcards")
   revalidatePath("/flashcards")
+  revalidatePath("/dashboard")
+  revalidatePath("/gerenciador")
 }
 
 export async function createSubject(name: string): Promise<{ success: true }> {

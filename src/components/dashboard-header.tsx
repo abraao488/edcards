@@ -20,28 +20,30 @@ export function DashboardHeader({
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
-    <header className="mb-10 flex items-center justify-between">
+    <header className="mb-6 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <p className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.25em] text-primary">
+        <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.25em] text-primary sm:text-[11px]">
           Painel
         </p>
-        <h1 className="text-4xl font-extrabold tracking-tighter text-foreground">
+        <h1 className="text-3xl font-extrabold tracking-tighter text-foreground sm:text-4xl">
           Dashboard
           {concurrence && (
-            <span className="ml-2 text-xl font-medium text-muted-foreground">
+            <span className="ml-2 text-base font-medium tracking-normal text-muted-foreground sm:text-xl">
               , {concurrence}
             </span>
           )}
         </h1>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          Acompanhe seu progresso de estudos
+        <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          Acompanhe seu progresso de estudos e mantenha a sequência ativa
         </p>
       </div>
 
-      <div className="relative">
+      <div className="relative self-start sm:self-auto">
         <button
           onClick={() => setMenuOpen(!menuOpen)}
-          className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-2 transition-colors hover:bg-secondary"
+          className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 transition-all duration-200 hover:border-foreground/15 hover:bg-secondary sm:w-auto sm:px-4 active:scale-[0.98]"
+          aria-label="Abrir menu do usuário"
+          aria-expanded={menuOpen}
         >
           {avatarUrl ? (
             <Image

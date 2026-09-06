@@ -376,8 +376,8 @@ export function SRSReviewSession({
     return (
       <div className="min-h-screen bg-background">
         {showSidebar && <Sidebar email={email} />}
-        <main className={`${showSidebar ? "pl-64" : ""} flex min-h-screen items-center justify-center p-8`}>
-          <div className="relative w-full max-w-xl rounded-2xl border border-border bg-card p-10 text-center shadow-[0_0_30px_rgba(0,212,255,0.05)] overflow-hidden">
+        <main className={`${showSidebar ? "pt-14 lg:pl-64 lg:pt-0" : ""} flex min-h-screen items-center justify-center p-4 sm:p-6 lg:p-8`}>
+          <div className="relative w-full max-w-xl rounded-2xl border border-border bg-card p-6 sm:p-10 text-center shadow-[0_0_30px_rgba(0,212,255,0.05)] animate-edcards-scale overflow-hidden">
             <div className="absolute -left-20 -top-20 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
             <div className="absolute -right-20 -bottom-20 h-40 w-40 rounded-full bg-purple-500/10 blur-3xl" />
 
@@ -396,10 +396,10 @@ export function SRSReviewSession({
 
             <button
               onClick={() => router.push(isQuizMode ? "/materias" : "/dashboard")}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_20px_rgba(0,229,255,0.4)] hover:scale-[1.02]"
+              className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-primary px-6 py-3 font-semibold text-primary-foreground transition-all duration-200 ease-out hover:bg-primary/90 hover:shadow-[0_0_20px_rgba(0,229,255,0.3)] active:scale-[0.98]"
             >
               {isQuizMode ? "Voltar para Matérias" : "Voltar ao Painel"}
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </main>
@@ -415,7 +415,7 @@ export function SRSReviewSession({
     return (
       <div className="min-h-screen bg-background">
         {showSidebar && <Sidebar email={email} />}
-        <main className={`${showSidebar ? "pl-64" : ""} flex min-h-screen items-center justify-center p-8`}>
+        <main className={`${showSidebar ? "pt-14 lg:pl-64 lg:pt-0" : ""} flex min-h-screen items-center justify-center p-4 sm:p-6 lg:p-8`}>
           <div className="w-full max-w-2xl">
             <div className="mb-4 flex items-center justify-between text-sm">
               <span className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
@@ -473,7 +473,7 @@ export function SRSReviewSession({
   const showFirstTimeUI = isFirstTimeCard && !isQuizMode
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden flex flex-col justify-center items-center p-6">
+    <div className="min-h-screen bg-background relative overflow-hidden flex flex-col justify-center items-center p-4 sm:p-6">
       <div className="absolute left-1/4 top-1/4 -translate-x-1/2 -translate-y-1/2 h-96 w-96 rounded-full bg-primary/5 blur-3xl pointer-events-none" />
       <div className="absolute right-1/4 bottom-1/4 translate-x-1/2 translate-y-1/2 h-96 w-96 rounded-full bg-purple-500/5 blur-3xl pointer-events-none" />
 

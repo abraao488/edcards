@@ -1,5 +1,6 @@
 "use server"
 
+import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
 
@@ -44,6 +45,12 @@ export async function redistributeOverdueCards() {
     })
     await prisma.$transaction(updates)
   }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/flashcards")
+  revalidatePath("/flashcards")
+  revalidatePath("/organizar")
+  revalidatePath("/gerenciador")
 
   return { redistributed: sorted.length }
 }

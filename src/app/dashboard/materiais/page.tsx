@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma"
 import { UploadPdfDialog } from "@/components/upload-pdf-dialog"
 import { deleteDocument } from "@/lib/materiais/actions"
 
+export const dynamic = "force-dynamic"
+
 export default async function MateriaisPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

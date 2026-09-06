@@ -1,10 +1,12 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Shuffle, AlertTriangle, CheckCircle } from "lucide-react"
 import { redistributeOverdueCards } from "@/lib/flashcards/organize"
 
 export function OrganizeButton() {
+  const router = useRouter()
   const [showConfirm, setShowConfirm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{ count: number } | null>(null)
@@ -15,6 +17,7 @@ export function OrganizeButton() {
       const res = await redistributeOverdueCards()
       setResult({ count: res.redistributed })
       setShowConfirm(false)
+      router.refresh()
     } catch (err) {
       console.error(err)
     } finally {

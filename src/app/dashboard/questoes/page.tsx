@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { CreateQuestionDialog } from "@/components/create-question-dialog"
 import { deleteQuestion } from "@/lib/questoes/actions"
 
+export const dynamic = "force-dynamic"
+
 const difficultyLabel: Record<string, string> = {
   EASY: "Fácil",
   MEDIUM: "Médio",

@@ -46,28 +46,28 @@ export function MetricCard({
   const colors = colorMap[color]
 
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-lg">
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-foreground/15 hover:shadow-[0_8px_24px_rgba(0,0,0,0.22)] animate-edcards-in">
       <div className="flex items-start justify-between gap-3">
-        <span className="font-mono text-[11px] font-medium uppercase leading-relaxed tracking-[0.18em] text-muted-foreground">
+        <span className="font-mono text-[10px] sm:text-[11px] font-semibold uppercase leading-relaxed tracking-[0.18em] text-muted-foreground">
           {label}
         </span>
-        <div className={cn("shrink-0 rounded-lg border p-2", colors.bg, colors.border)}>
-          <Icon className={cn("h-5 w-5", colors.icon)} />
+        <div className={cn("shrink-0 rounded-lg border p-2 transition-colors duration-200 group-hover:scale-[1.04]", colors.bg, colors.border)}>
+          <Icon className={cn("h-5 w-5", colors.icon)} aria-hidden="true" />
         </div>
       </div>
-      <div className="mt-5 flex items-baseline gap-2">
-        <p className="font-mono text-4xl font-semibold leading-none tracking-tight text-foreground">
+      <div className="mt-4 sm:mt-5 flex items-baseline gap-2">
+        <p className="font-mono text-3xl sm:text-4xl font-semibold leading-none tracking-tight text-foreground">
           {value}
         </p>
         {suffix && (
-          <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
             {suffix}
           </span>
         )}
       </div>
       <div
         className={cn(
-          "absolute bottom-0 left-0 h-0.5 w-0 transition-all duration-300 group-hover:w-full",
+          "absolute bottom-0 left-0 h-0.5 w-0 transition-all duration-300 ease-out group-hover:w-full",
           colors.bar
         )}
       />

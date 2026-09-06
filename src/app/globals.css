@@ -1,3 +1,18 @@
+/* ── EDCARDS DESIGN SYSTEM ───────────────────────────────────────────────
+   Estilo: Dark Mode (OLED) — dark-mode-oled (styles.csv)
+           Deep Black #060A14 / Midnight Blue #0A0E27 + minimal glow
+           low light, high contrast 7:1+, OLED power efficient
+   Paleta: Dark OLED Cyan — tokens abaixo preservam globals atuais
+           --background 222 44% 4% (~#060A14 Midnight), --card 221 36% 6%,
+           --primary 185 100% 50% (#00E5FF cyan Brain), --border 220 18% 15%
+           Compatível com ícone Brain cyan; mapeada sobre colors.csv família dark
+           (#0F0F23/#1B1B30) com primary neon substituído
+   Tipografia: Modern Dark Cinema (Inter System) — typography.csv
+           Inter single-family: GeistVF var(--font-sans) ~= Inter
+           Display 48 / H1 32 tracking -0.015 / Body 16 / Labels 11px uppercase 0.18em
+           Mood: dark, cinematic, technical, precision, clean, premium
+   Motion: 200-250ms ease-out, prefers-reduced-motion respeitado
+   ───────────────────────────────────────────────────────────────────────── */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -36,16 +51,63 @@
   * {
     @apply border-border;
   }
+  html {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
   ::selection {
-    background: hsl(185 100% 50% / 0.25);
+    background: hsl(185 100% 50% / 0.22);
+  }
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  /* micro-transições sutis: respeitam force-dynamic/revalidatePath — só CSS */
+  .edcards-card {
+    @apply transition-all duration-200 ease-out;
+  }
+  .edcards-card:hover {
+    @apply border-foreground/15 shadow-lg;
+  }
+  .edcards-press {
+    @apply active:scale-[0.98] transition-transform duration-100;
+  }
+}
+
+/* Keyframes leves para hierarquia e modais — 150-250ms */
+@keyframes edcards-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes edcards-scale-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes edcards-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-edcards-in {
+  animation: edcards-fade-in 220ms ease-out;
+}
+.animate-edcards-scale {
+  animation: edcards-scale-in 200ms ease-out;
+}
+
+/* reduz motion quando usuário prefere */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

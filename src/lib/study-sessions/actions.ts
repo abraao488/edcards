@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureUserExists } from "@/lib/auth/sync";
 import { getOrCreateActiveProfile } from "@/lib/profile/helpers";
@@ -33,6 +34,10 @@ export async function saveStudySession(
     },
   });
 
+  revalidatePath("/gerenciador");
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/flashcards");
+
   return session;
 }
 
@@ -56,6 +61,10 @@ export async function updateQuizModePreference(value: boolean) {
     create: { userId: user.id, preferQuizMode: value },
     update: { preferQuizMode: value },
   });
+
+  revalidatePath("/flashcards");
+  revalidatePath("/dashboard/flashcards");
+  revalidatePath("/gerenciador");
 
   return { success: true };
 }
@@ -163,6 +172,31 @@ export async function scheduleTopicReviews(
     });
   }
 
+  revalidatePath("/flashcards");
+  revalidatePath("/dashboard/flashcards");
+  revalidatePath("/dashboard");
+  revalidatePath("/gerenciador");
+  revalidatePath("/materias");
+
   return { success: true };
+}
+
+export async function deleteStudySession(sessionId: string) {
+  const user = await ensureUserExists();
+
+  const existing = await prisma.studySession.findFirst({
+    where: { id: sessionId, userId: user.id },
+    select: { id: true },
+  });
+
+  if (!existing) {
+    throw new Error("Sessão não encontrada ou sem permissão para excluir.");
+  }
+
+  await prisma.studySession.delete({
+    where: { id: sessionId },
+  });
+
+  revalidatePath("/gerenciador");
 }
 

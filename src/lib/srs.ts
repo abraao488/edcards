@@ -190,6 +190,9 @@ export async function skipFlashcard(progressCardId: string): Promise<void> {
 
   revalidatePath("/dashboard/flashcards")
   revalidatePath("/flashcards")
+  revalidatePath("/dashboard")
+  revalidatePath("/materias")
+  revalidatePath("/gerenciador")
 }
 
 /**
@@ -231,6 +234,9 @@ export async function submitFirstReview(progressCardId: string): Promise<{
 
   revalidatePath("/dashboard/flashcards")
   revalidatePath("/flashcards")
+  revalidatePath("/dashboard")
+  revalidatePath("/materias")
+  revalidatePath("/gerenciador")
 
   return { nextReviewDate }
 }
@@ -282,6 +288,9 @@ export async function resetSRSProgressCycle(
 
   revalidatePath("/dashboard/flashcards")
   revalidatePath("/flashcards")
+  revalidatePath("/dashboard")
+  revalidatePath("/materias")
+  revalidatePath("/gerenciador")
 
   return { nextReviewDate }
 }
@@ -355,6 +364,9 @@ export async function submitSRSReview(
 
   revalidatePath("/dashboard/flashcards")
   revalidatePath("/flashcards")
+  revalidatePath("/dashboard")
+  revalidatePath("/materias")
+  revalidatePath("/gerenciador")
 
   return {
     difficulty,

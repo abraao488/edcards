@@ -4,6 +4,8 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { MetricCard } from "@/components/metric-card"
 import { RevisionCalendarInline } from "@/components/revision-calendar-inline"
 
+export const dynamic = "force-dynamic"
+
 export default async function DashboardPage() {
   const metrics = await getDashboardMetrics()
   const calendar = await getRevisionCalendar(30)
@@ -20,9 +22,9 @@ export default async function DashboardPage() {
         email={metrics.email}
       />
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-3 sm:mb-8 sm:gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
         <MetricCard
-          label="Seus Flash Cards do dia"
+          label="Flash Cards do dia"
           value={metrics.cardsToday + todayCount}
           icon={Brain}
           color="cyan"
@@ -30,7 +32,7 @@ export default async function DashboardPage() {
         />
 
         <MetricCard
-          label="Seus Flash Cards atrasados"
+          label="Flash Cards atrasados"
           value={metrics.overdueCards}
           icon={AlertTriangle}
           color="red"
@@ -38,7 +40,7 @@ export default async function DashboardPage() {
         />
 
         <MetricCard
-          label="Sua sequência de dias"
+          label="Sequência de dias"
           value={metrics.streak}
           icon={Flame}
           color="orange"
@@ -46,7 +48,7 @@ export default async function DashboardPage() {
         />
 
         <MetricCard
-          label="Sua quantidade de matérias"
+          label="Quantidade de matérias"
           value={metrics.subjectsCount}
           icon={BookOpen}
           color="purple"

@@ -311,22 +311,23 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
         </DialogContent>
       </Dialog>
 
-      <div className="mb-6 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+      <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:gap-3">
         <input
           value={newSubjectName}
           onChange={(e) => setNewSubjectName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreateSubject()}
           placeholder="Nome da nova matéria..."
-          className="h-11 flex-1 rounded-lg border border-input bg-secondary/60 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          className="h-11 flex-1 rounded-lg border border-input bg-secondary/60 px-4 text-sm text-foreground placeholder:text-muted-foreground transition-all duration-200 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <button
           onClick={handleCreateSubject}
           disabled={saving || !newSubjectName.trim()}
-          className="flex h-11 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-50"
+          className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-all duration-200 ease-out hover:bg-primary/90 hover:shadow-[0_0_12px_rgba(0,212,255,0.15)] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Plus className="h-4 w-4" /> {saving ? "Criando..." : "Criar Matéria"}
+          <Plus className="h-4 w-4" aria-hidden="true" /> {saving ? "Criando..." : "Criar Matéria"}
         </button>
       </div>
+      <div className="mb-2" />
 
       {localSubjects.length === 0 ? (
         <EmptyState
@@ -346,36 +347,36 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
             return (
               <div
                 key={subject.id}
-                className="rounded-xl border border-border bg-card overflow-hidden transition-all duration-300 hover:border-primary/40 shadow-sm"
+                className="rounded-xl border border-border bg-card overflow-hidden shadow-sm transition-all duration-200 ease-out hover:border-primary/25 hover:shadow-md"
               >
                 <div
                   onClick={() => toggleExpand(subject.id)}
-                  className="w-full flex items-center justify-between p-5 text-left bg-card hover:bg-secondary/20 transition-colors cursor-pointer"
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 bg-card p-4 text-left transition-colors duration-200 hover:bg-secondary/20 sm:p-5"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
-                      <Folder className="h-5 w-5 text-primary" />
+                  <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 sm:h-11 sm:w-11">
+                      <Folder className="h-5 w-5 text-primary" aria-hidden="true" />
                     </div>
-                    <div>
-                      <h3 className="text-lg font-bold tracking-tight text-foreground">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg">
                         {subject.name}
                       </h3>
-                      <p className="mt-0.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">
                         {subject.topics.length}{" "}
                         {subject.topics.length === 1 ? "assunto" : "assuntos"} ·{" "}
                         {totalCards} {totalCards === 1 ? "card" : "cards"}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                     <Link
                       href={`/dashboard/flashcards/consultation?subjectId=${subject.id}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
+                      className="rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-all duration-200 hover:bg-primary/20 active:scale-[0.98]"
                     >
                       Estudar
                     </Link>
-                    <div className="text-muted-foreground">
+                    <div className="hidden text-muted-foreground sm:block" aria-hidden="true">
                       {isExpanded ? (
                         <ChevronUp className="h-5 w-5 text-primary" />
                       ) : (
@@ -388,7 +389,7 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
                       }
                       disabled={saving}
                       aria-label={`Excluir matéria ${subject.name}`}
-                      className="rounded-lg p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+                      className="rounded-lg p-1.5 text-muted-foreground transition-colors duration-200 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

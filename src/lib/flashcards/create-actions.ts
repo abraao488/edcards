@@ -132,6 +132,9 @@ export async function createCardWithSubject(
   })
 
   revalidatePath("/dashboard/flashcards")
+  revalidatePath("/flashcards")
+  revalidatePath("/materias")
+  revalidatePath("/dashboard")
   revalidatePath("/cadastrar")
 }
 
@@ -145,6 +148,12 @@ export async function createBulkFlashcards(
       await createCardWithSubject(card.front, card.back, card.topicId, card.cardType || "BASIC")
     }
   }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/flashcards")
+  revalidatePath("/flashcards")
+  revalidatePath("/materias")
+  revalidatePath("/cadastrar")
 
   return { count: cards.length }
 }

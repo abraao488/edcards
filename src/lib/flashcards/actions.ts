@@ -132,7 +132,10 @@ export async function createFlashcard(deckId: string, formData: FormData) {
   })
 
   revalidatePath(`/dashboard/flashcards/${deckId}`)
+  revalidatePath("/dashboard/flashcards")
+  revalidatePath("/flashcards")
   revalidatePath("/materias")
+  revalidatePath("/dashboard")
 }
 
 export async function deleteFlashcard(id: string, deckId: string) {
@@ -140,5 +143,9 @@ export async function deleteFlashcard(id: string, deckId: string) {
 
   await prisma.flashcard.deleteMany({ where: { id, deck: { userId: user.id } } })
   revalidatePath(`/dashboard/flashcards/${deckId}`)
+  revalidatePath("/dashboard/flashcards")
+  revalidatePath("/flashcards")
+  revalidatePath("/materias")
+  revalidatePath("/dashboard")
 }
 

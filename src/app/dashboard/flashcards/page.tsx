@@ -4,6 +4,8 @@ import { DeckCard } from "@/components/deck-card"
 import { CreateDeckDialog } from "@/components/create-deck-dialog"
 import { Brain } from "lucide-react"
 
+export const dynamic = "force-dynamic"
+
 export default async function FlashcardsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
