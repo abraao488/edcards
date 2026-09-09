@@ -435,6 +435,7 @@ export async function ensureProgressCardsForFlashcards(
       id: pc.flashcard.id,
       front: pc.flashcard.front,
       back: pc.flashcard.back,
+      cardType: (pc.flashcard as unknown as { cardType?: string }).cardType ?? "BASIC",
       topic: pc.flashcard.topic
         ? {
             id: pc.flashcard.topic.id,

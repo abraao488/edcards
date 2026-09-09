@@ -14,6 +14,11 @@ import {
   CheckCircle,
   AlertCircle,
   X,
+  List,
+  Pencil,
+  Save,
+  Loader2,
+  EyeOff,
 } from "lucide-react"
 import {
   createSubject,
@@ -21,6 +26,11 @@ import {
   deleteSubject,
   deleteTopic,
 } from "@/lib/subjects/actions"
+import {
+  getFlashcardsByTopic,
+  updateFlashcard,
+  deleteFlashcard,
+} from "@/lib/flashcards/actions"
 import { EmptyState } from "@/components/empty-state"
 import {
   Dialog,
@@ -89,6 +99,25 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
       topicId: "",
       topicName: "",
     })
+
+  // Visualizar todos — lista de flashcards por assunto
+  type TopicCard = {
+    id: string
+    front: string
+    back: string
+    cardType: string
+    createdAt: Date | string
+    topicId: string | null
+  }
+  const [viewAllTopic, setViewAllTopic] = useState<{ id: string; name: string } | null>(null)
+  const [topicCards, setTopicCards] = useState<TopicCard[]>([])
+  const [loadingCards, setLoadingCards] = useState(false)
+  const [editingCardId, setEditingCardId] = useState<string | null>(null)
+  const [editFront, setEditFront] = useState("")
+  const [editBack, setEditBack] = useState("")
+  const [savingCard, setSavingCard] = useState(false)
+  const [viewCardId, setViewCardId] = useState<string | null>(null)
+  const [confirmDeleteCard, setConfirmDeleteCard] = useState<{ id: string; front: string } | null>(null)
 
   useEffect(() => {
     setLocalSubjects(subjects)
@@ -206,6 +235,88 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
       router.refresh()
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleOpenViewAll(topicId: string, topicName: string) {
+    setViewAllTopic({ id: topicId, name: topicName })
+    setLoadingCards(true)
+    setTopicCards([])
+    setEditingCardId(null)
+    setViewCardId(null)
+    try {
+      const cards = await getFlashcardsByTopic(topicId)
+      setTopicCards(cards as TopicCard[])
+    } catch (err) {
+      console.error("Erro ao carregar flashcards:", err)
+      showToast(err instanceof Error ? err.message : "Erro ao carregar cards", "error")
+    } finally {
+      setLoadingCards(false)
+    }
+  }
+
+  function startEditCard(card: TopicCard) {
+    setEditingCardId(card.id)
+    setEditFront(card.front)
+    setEditBack(card.back)
+    setViewCardId(null)
+  }
+
+  function cancelEditCard() {
+    setEditingCardId(null)
+    setEditFront("")
+    setEditBack("")
+  }
+
+  async function handleSaveEditCard() {
+    if (!editingCardId) return
+    if (!editFront.trim() || !editBack.trim()) {
+      showToast("Pergunta e resposta são obrigatórias", "error")
+      return
+    }
+    setSavingCard(true)
+    try {
+      await updateFlashcard(editingCardId, editFront, editBack)
+      setTopicCards((prev) =>
+        prev.map((c) => (c.id === editingCardId ? { ...c, front: editFront.trim(), back: editBack.trim() } : c))
+      )
+      setEditingCardId(null)
+      showToast("Flashcard atualizado com sucesso!")
+      router.refresh()
+    } catch (err) {
+      console.error("Erro ao editar flashcard:", err)
+      showToast(err instanceof Error ? err.message : "Erro ao editar", "error")
+    } finally {
+      setSavingCard(false)
+    }
+  }
+
+  async function handleConfirmDeleteCard() {
+    if (!confirmDeleteCard) return
+    const cardId = confirmDeleteCard.id
+    setConfirmDeleteCard(null)
+    setSavingCard(true)
+    try {
+      await deleteFlashcard(cardId)
+      setTopicCards((prev) => prev.filter((c) => c.id !== cardId))
+      // atualiza contador local
+      if (viewAllTopic) {
+        setLocalSubjects((prev) =>
+          prev.map((s) => ({
+            ...s,
+            topics: s.topics.map((t) =>
+              t.id === viewAllTopic.id ? { ...t, _count: { flashcards: Math.max(0, t._count.flashcards - 1) } } : t
+            ),
+          }))
+        )
+      }
+      showToast("Flashcard excluído com sucesso!")
+      router.refresh()
+    } catch (err) {
+      console.error("Erro ao excluir flashcard:", err)
+      showToast(err instanceof Error ? err.message : "Erro ao excluir", "error")
+    } finally {
+      setSavingCard(false)
     }
   }
 
@@ -423,6 +534,14 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
                             </div>
 
                             <div className="flex items-center gap-2 self-start sm:self-center pt-2 sm:pt-0">
+                              <button
+                                onClick={() => handleOpenViewAll(topic.id, topic.name)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 px-4 py-2 text-xs font-semibold text-primary transition-colors"
+                                title="Visualizar todos os flashcards deste assunto"
+                              >
+                                <List className="h-4 w-4" />
+                                Visualizar todos
+                              </button>
                               {topic._count.flashcards > 0 ? (
                                 <div className="flex flex-wrap gap-2">
                                   <Link
@@ -485,6 +604,165 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
           })}
         </div>
       )}
+
+      {/* Dialog Visualizar todos - lista de flashcards por assunto */}
+      <Dialog open={!!viewAllTopic} onOpenChange={(open) => !open && setViewAllTopic(null)}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-foreground">
+              Flashcards — {viewAllTopic?.name}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              {loadingCards
+                ? "Carregando..."
+                : topicCards.length === 0
+                ? "Nenhum flashcard cadastrado para este assunto."
+                : `${topicCards.length} ${topicCards.length === 1 ? "flashcard" : "flashcards"} neste assunto`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto -mx-4 px-4 space-y-3 py-2">
+            {loadingCards ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : topicCards.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-6 text-center text-sm text-muted-foreground">
+                Nenhum card aqui ainda.
+              </p>
+            ) : (
+              topicCards.map((card) => {
+                const isEditing = editingCardId === card.id
+                const isViewing = viewCardId === card.id
+                return (
+                  <div
+                    key={card.id}
+                    className="rounded-xl border border-border bg-card p-4 shadow-sm"
+                  >
+                    {isEditing ? (
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-foreground">Pergunta (Frente)</label>
+                          <textarea
+                            value={editFront}
+                            onChange={(e) => setEditFront(e.target.value)}
+                            rows={2}
+                            className="w-full rounded-lg border border-input bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                            placeholder="Pergunta"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-foreground">Resposta (Verso)</label>
+                          <textarea
+                            value={editBack}
+                            onChange={(e) => setEditBack(e.target.value)}
+                            rows={2}
+                            className="w-full rounded-lg border border-input bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                            placeholder="Resposta"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={cancelEditCard}
+                            disabled={savingCard}
+                            className="rounded-lg border border-border bg-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-secondary/80 disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={handleSaveEditCard}
+                            disabled={savingCard}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {savingCard ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                            Salvar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-foreground line-clamp-3">
+                            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1">P:</span>
+                            {card.front}
+                          </p>
+                          {isViewing && (
+                            <p className="text-sm text-muted-foreground border-t border-border/40 pt-2">
+                              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-primary mr-1">R:</span>
+                              {card.back}
+                            </p>
+                          )}
+                        </div>
+                        <div className="mt-3 flex items-center gap-1.5 justify-end flex-wrap">
+                          <button
+                            onClick={() => setViewCardId(isViewing ? null : card.id)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors"
+                            title={isViewing ? "Ocultar resposta" : "Visualizar pergunta e resposta"}
+                          >
+                            {isViewing ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            {isViewing ? "Ocultar" : "Visualizar"}
+                          </button>
+                          <button
+                            onClick={() => startEditCard(card)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteCard({ id: card.id, front: card.front })}
+                            className="inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Excluir
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          <DialogFooter>
+            <button
+              onClick={() => setViewAllTopic(null)}
+              className="rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary/80"
+            >
+              Fechar
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação excluir flashcard individual */}
+      <Dialog open={!!confirmDeleteCard} onOpenChange={(open) => !open && setConfirmDeleteCard(null)}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-foreground">Excluir flashcard</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Tem certeza que deseja excluir o flashcard{" "}
+              <span className="font-medium text-foreground">&quot;{confirmDeleteCard?.front.slice(0, 80)}&quot;</span>
+              ? Esta ação remove apenas este card e não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              onClick={() => setConfirmDeleteCard(null)}
+              className="rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary/80"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleConfirmDeleteCard}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
+            >
+              Excluir
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

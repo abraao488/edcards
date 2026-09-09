@@ -77,6 +77,7 @@ export default async function FlashcardsPage({
         id: fc.id,
         front: fc.front,
         back: fc.back,
+        cardType: (fc as unknown as { cardType?: string }).cardType ?? "BASIC",
         topic: fc.topic
           ? {
               id: fc.topic.id,
@@ -176,6 +177,7 @@ async function loadQueueCards(dbUser: {
       id: pc.flashcard.id,
       front: pc.flashcard.front,
       back: pc.flashcard.back,
+      cardType: (pc.flashcard as unknown as { cardType?: string }).cardType ?? "BASIC",
       topic: pc.flashcard.topic
         ? {
             id: pc.flashcard.topic.id,

@@ -26,6 +26,7 @@ import {
   Clock,
   ClipboardList,
 } from "lucide-react"
+import { hasCloze, parseCloze } from "@/lib/cloze"
 
 interface FlashcardData {
   id: string
@@ -37,6 +38,7 @@ interface FlashcardData {
     id: string
     front: string
     back: string
+    cardType?: string
     topic: {
       id: string
       name: string
@@ -46,6 +48,51 @@ interface FlashcardData {
       }
     } | null
   }
+}
+
+function isClozeCard(front: string, cardType?: string): boolean {
+  if (cardType === "CLOZE") return true
+  return hasCloze(front)
+}
+
+function ClozeQuestionView({ text }: { text: string }) {
+  const parts = parseCloze(text)
+  return (
+    <span>
+      {parts.map((p, i) =>
+        p.isGap ? (
+          <span
+            key={i}
+            className="inline-flex min-w-[72px] items-center justify-center rounded-md border-b-2 border-dashed border-primary/60 bg-primary/5 px-2 py-0.5 mx-1 font-mono text-sm font-semibold tracking-widest text-primary"
+          >
+            ______
+          </span>
+        ) : (
+          <span key={i}>{p.text}</span>
+        )
+      )}
+    </span>
+  )
+}
+
+function ClozeAnswerView({ text }: { text: string }) {
+  const parts = parseCloze(text)
+  return (
+    <span>
+      {parts.map((p, i) =>
+        p.isGap ? (
+          <span
+            key={i}
+            className="inline-flex items-center justify-center rounded-md border-b-2 border-primary bg-primary/15 px-2 py-0.5 mx-1 font-bold text-primary"
+          >
+            {p.answer}
+          </span>
+        ) : (
+          <span key={i}>{p.text}</span>
+        )
+      )}
+    </span>
+  )
 }
 
 interface SRSReviewSessionProps {
@@ -471,6 +518,9 @@ export function SRSReviewSession({
   const isEnded = Boolean(currentCard.isCycleEnded)
   // No Modo Consulta, ignoramos completamente a lógica de "1ª revisão" na UI
   const showFirstTimeUI = isFirstTimeCard && !isQuizMode
+  const isClozeCurrent = currentCard
+    ? isClozeCard(currentCard.flashcard.front, currentCard.flashcard.cardType)
+    : false
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden flex flex-col justify-center items-center p-4 sm:p-6">
@@ -559,7 +609,11 @@ export function SRSReviewSession({
                     )}
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug text-foreground">
-                    {currentCard.flashcard.front}
+                    {isClozeCurrent ? (
+                      <ClozeQuestionView text={currentCard.flashcard.front} />
+                    ) : (
+                      currentCard.flashcard.front
+                    )}
                   </h2>
                 </div>
 
@@ -570,13 +624,21 @@ export function SRSReviewSession({
                       type="text"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
-                      placeholder="Escreva sua resposta por extenso..."
+                      placeholder={
+                        isClozeCurrent
+                          ? "Digite a(s) palavra(s) omitida(s)..."
+                          : "Escreva sua resposta por extenso..."
+                      }
                       className="w-full bg-transparent px-4 py-3 text-base text-foreground placeholder-muted-foreground outline-none border-none"
                       disabled={loading}
                     />
                   </div>
                   <div className="mt-3 flex justify-between items-center text-xs text-muted-foreground px-1">
-                    <span>Digite sua resposta por completo</span>
+                    <span>
+                      {isClozeCurrent
+                        ? "Complete a(s) lacuna(s) — separe múltiplas respostas por vírgula"
+                        : "Digite sua resposta por completo"}
+                    </span>
                     <span className="flex items-center gap-1">
                       Pressione <kbd className="bg-secondary px-1.5 py-0.5 rounded border border-border font-mono text-[10px] font-semibold">ENTER</kbd> para prosseguir
                     </span>
@@ -593,7 +655,11 @@ export function SRSReviewSession({
                     Pergunta
                   </span>
                   <h2 className="text-xl font-bold tracking-tight text-foreground">
-                    {currentCard.flashcard.front}
+                    {isClozeCurrent ? (
+                      <ClozeQuestionView text={currentCard.flashcard.front} />
+                    ) : (
+                      currentCard.flashcard.front
+                    )}
                   </h2>
                 </div>
 
@@ -615,8 +681,20 @@ export function SRSReviewSession({
                       Gabarito
                     </span>
                     <p className="mt-3 text-base text-foreground font-medium leading-relaxed">
-                      {currentCard.flashcard.back}
+                      {isClozeCurrent ? (
+                        <ClozeAnswerView text={currentCard.flashcard.front} />
+                      ) : (
+                        currentCard.flashcard.back
+                      )}
                     </p>
+                    {isClozeCurrent && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Resposta esperada:{" "}
+                        <span className="font-semibold text-foreground">
+                          {currentCard.flashcard.back}
+                        </span>
+                      </p>
+                    )}
                   </div>
                 </div>
 

@@ -138,14 +138,89 @@ export async function createFlashcard(deckId: string, formData: FormData) {
   revalidatePath("/dashboard")
 }
 
-export async function deleteFlashcard(id: string, deckId: string) {
+/**
+ * Lista todos os flashcards individuais de um assunto (topic),
+ * validando pertencimento ao user via deck.userId ou topic.subject.userId
+ */
+export async function getFlashcardsByTopic(topicId: string) {
   const user = await ensureUserExists()
 
+  const topic = await prisma.topic.findFirst({
+    where: { id: topicId, subject: { userId: user.id } },
+  })
+  if (!topic) throw new Error("Assunto não encontrado")
+
+  return prisma.flashcard.findMany({
+    where: { topicId, deck: { userId: user.id } },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      front: true,
+      back: true,
+      cardType: true,
+      createdAt: true,
+      topicId: true,
+    },
+  })
+}
+
+/**
+ * Atualiza pergunta/resposta de um flashcard individual
+ * Validação: where: { id, deck: { userId } }
+ */
+export async function updateFlashcard(id: string, front: string, back: string) {
+  const user = await ensureUserExists()
+
+  const trimmedFront = front.trim()
+  const trimmedBack = back.trim()
+
+  if (!trimmedFront) throw new Error("Pergunta é obrigatória.")
+  if (!trimmedBack) throw new Error("Resposta é obrigatória.")
+
+  const existing = await prisma.flashcard.findFirst({
+    where: { id, deck: { userId: user.id } },
+    select: { id: true },
+  })
+  if (!existing) throw new Error("Flashcard não encontrado")
+
+  await prisma.flashcard.update({
+    where: { id },
+    data: { front: trimmedFront, back: trimmedBack },
+  })
+
+  revalidatePath("/materias")
+  revalidatePath("/flashcards")
+  revalidatePath("/dashboard/flashcards")
+  revalidatePath("/dashboard")
+  revalidatePath("/gerenciador")
+
+  return { success: true as const }
+}
+
+// Mantido para compatibilidade com chamadas existentes (2 args)
+// Nova assinatura individual: deleteFlashcard(id) também é suportada via overload opcional
+export async function deleteFlashcard(id: string, deckId?: string) {
+  const user = await ensureUserExists()
+
+  const existing = await prisma.flashcard.findFirst({
+    where: { id, deck: { userId: user.id } },
+    select: { id: true },
+  })
+  if (!existing) throw new Error("Flashcard não encontrado")
+
+  // remove dependências antes do flashcard para respeitar FKs
+  await prisma.$transaction([
+    prisma.progressCard.deleteMany({ where: { flashcardId: id } }),
+    prisma.flashcardReview.deleteMany({ where: { flashcardId: id } }),
+  ])
+
   await prisma.flashcard.deleteMany({ where: { id, deck: { userId: user.id } } })
-  revalidatePath(`/dashboard/flashcards/${deckId}`)
+
+  if (deckId) revalidatePath(`/dashboard/flashcards/${deckId}`)
   revalidatePath("/dashboard/flashcards")
   revalidatePath("/flashcards")
   revalidatePath("/materias")
   revalidatePath("/dashboard")
+  revalidatePath("/gerenciador")
 }
 
