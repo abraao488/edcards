@@ -19,12 +19,15 @@ import {
   Save,
   Loader2,
   EyeOff,
+  GripVertical,
 } from "lucide-react"
 import {
   createSubject,
   createTopic,
   deleteSubject,
   deleteTopic,
+  updateSubjectOrder,
+  updateTopicOrder,
 } from "@/lib/subjects/actions"
 import {
   getFlashcardsByTopic,
@@ -40,6 +43,21 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 
 interface TopicWithCount {
   id: string
@@ -76,6 +94,59 @@ interface ConfirmDeleteTopicState {
   topicName: string
 }
 
+function SortableSubjectWrapper({
+  subject,
+  children,
+}: {
+  subject: SubjectWithTopics
+  children: (p: {
+    attributes: ReturnType<typeof useSortable>["attributes"]
+    listeners: ReturnType<typeof useSortable>["listeners"]
+    isDragging: boolean
+  }) => React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: subject.id,
+  })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  }
+  return (
+    <div ref={setNodeRef} style={style}>
+      {children({ attributes, listeners, isDragging })}
+    </div>
+  )
+}
+
+function SortableTopicWrapper({
+  topic,
+  children,
+}: {
+  topic: TopicWithCount
+  children: (p: {
+    attributes: ReturnType<typeof useSortable>["attributes"]
+    listeners: ReturnType<typeof useSortable>["listeners"]
+    isDragging: boolean
+  }) => React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: topic.id,
+  })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  }
+  return (
+    <div ref={setNodeRef} style={style}>
+      {children({ attributes, listeners, isDragging })}
+    </div>
+  )
+}
+
 export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
   const router = useRouter()
   const [localSubjects, setLocalSubjects] = useState<SubjectWithTopics[]>(subjects)
@@ -100,7 +171,6 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
       topicName: "",
     })
 
-  // Visualizar todos — lista de flashcards por assunto
   type TopicCard = {
     id: string
     front: string
@@ -118,6 +188,10 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
   const [savingCard, setSavingCard] = useState(false)
   const [viewCardId, setViewCardId] = useState<string | null>(null)
   const [confirmDeleteCard, setConfirmDeleteCard] = useState<{ id: string; front: string } | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  )
 
   useEffect(() => {
     setLocalSubjects(subjects)
@@ -238,6 +312,55 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
     }
   }
 
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const activeId = String(active.id)
+    const overId = String(over.id)
+
+    // 1) Tentar reorder de matérias (subjects)
+    const oldIndex = localSubjects.findIndex((s) => s.id === activeId)
+    const newIndex = localSubjects.findIndex((s) => s.id === overId)
+    if (oldIndex !== -1 && newIndex !== -1) {
+      const reordered = arrayMove(localSubjects, oldIndex, newIndex)
+      setLocalSubjects(reordered)
+      const items = reordered.map((s, idx) => ({ id: s.id, order: idx }))
+      try {
+        await updateSubjectOrder(items)
+      } catch (err) {
+        console.error("Erro ao reordenar matérias:", err)
+        showToast(err instanceof Error ? err.message : "Erro ao reordenar matérias", "error")
+        setLocalSubjects(localSubjects)
+      }
+      return
+    }
+
+    // 2) Tentar reorder de assuntos dentro da mesma matéria
+    const activeSubject = localSubjects.find((s) => s.topics.some((t) => t.id === activeId))
+    const overSubject = localSubjects.find((s) => s.topics.some((t) => t.id === overId))
+    if (activeSubject && overSubject && activeSubject.id === overSubject.id) {
+      const oldTopicIndex = activeSubject.topics.findIndex((t) => t.id === activeId)
+      const newTopicIndex = activeSubject.topics.findIndex((t) => t.id === overId)
+      if (oldTopicIndex !== -1 && newTopicIndex !== -1) {
+        const reorderedTopics = arrayMove(activeSubject.topics, oldTopicIndex, newTopicIndex)
+        const newSubjects = localSubjects.map((s) =>
+          s.id === activeSubject.id ? { ...s, topics: reorderedTopics } : s
+        )
+        setLocalSubjects(newSubjects)
+        const items = reorderedTopics.map((t, idx) => ({ id: t.id, order: idx }))
+        try {
+          await updateTopicOrder(items)
+        } catch (err) {
+          console.error("Erro ao reordenar assuntos:", err)
+          showToast(err instanceof Error ? err.message : "Erro ao reordenar assuntos", "error")
+          setLocalSubjects(localSubjects)
+        }
+        return
+      }
+    }
+    // se arrastou entre matérias diferentes, ignora (prompt diz: assuntos dentro de uma mesma matéria)
+  }
+
   async function handleOpenViewAll(topicId: string, topicName: string) {
     setViewAllTopic({ id: topicId, name: topicName })
     setLoadingCards(true)
@@ -299,7 +422,6 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
     try {
       await deleteFlashcard(cardId)
       setTopicCards((prev) => prev.filter((c) => c.id !== cardId))
-      // atualiza contador local
       if (viewAllTopic) {
         setLocalSubjects((prev) =>
           prev.map((s) => ({
@@ -447,162 +569,204 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
           description="Crie a primeira matéria no campo acima e ela aparece aqui na hora."
         />
       ) : (
-        <div className="space-y-4">
-          {localSubjects.map((subject) => {
-            const isExpanded = !!expandedIds[subject.id]
-            const totalCards = subject.topics.reduce(
-              (acc, t) => acc + t._count.flashcards,
-              0
-            )
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={localSubjects.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-4">
+              {localSubjects.map((subject) => {
+                const isExpanded = !!expandedIds[subject.id]
+                const totalCards = subject.topics.reduce(
+                  (acc, t) => acc + t._count.flashcards,
+                  0
+                )
 
-            return (
-              <div
-                key={subject.id}
-                className="rounded-xl border border-border bg-card overflow-hidden shadow-sm transition-all duration-200 ease-out hover:border-primary/25 hover:shadow-md"
-              >
-                <div
-                  onClick={() => toggleExpand(subject.id)}
-                  className="flex w-full cursor-pointer items-center justify-between gap-3 bg-card p-4 text-left transition-colors duration-200 hover:bg-secondary/20 sm:p-5"
-                >
-                  <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 sm:h-11 sm:w-11">
-                      <Folder className="h-5 w-5 text-primary" aria-hidden="true" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg">
-                        {subject.name}
-                      </h3>
-                      <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">
-                        {subject.topics.length}{" "}
-                        {subject.topics.length === 1 ? "assunto" : "assuntos"} ·{" "}
-                        {totalCards} {totalCards === 1 ? "card" : "cards"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                    <Link
-                      href={`/dashboard/flashcards/consultation?subjectId=${subject.id}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-all duration-200 hover:bg-primary/20 active:scale-[0.98]"
-                    >
-                      Estudar
-                    </Link>
-                    <div className="hidden text-muted-foreground sm:block" aria-hidden="true">
-                      {isExpanded ? (
-                        <ChevronUp className="h-5 w-5 text-primary" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5" />
-                      )}
-                    </div>
-                    <button
-                      onClick={(e) =>
-                        openConfirmDeleteSubject(subject.id, subject.name, e)
-                      }
-                      disabled={saving}
-                      aria-label={`Excluir matéria ${subject.name}`}
-                      className="rounded-lg p-1.5 text-muted-foreground transition-colors duration-200 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="border-t border-border/40 bg-secondary/10 px-5 py-4 animate-in slide-in-from-top-4 duration-200">
-                    <div className="space-y-2">
-                      {subject.topics.length === 0 ? (
-                        <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
-                          Nenhum assunto cadastrado para esta matéria.
-                        </p>
-                      ) : (
-                        subject.topics.map((topic) => (
-                          <div
-                            key={topic.id}
-                            className="flex flex-col sm:flex-row sm:items-center justify-between py-3.5 gap-4 divide-y sm:divide-y-0 divide-border/30"
+                return (
+                  <SortableSubjectWrapper key={subject.id} subject={subject}>
+                    {({ attributes, listeners, isDragging }) => (
+                      <div
+                        className={`rounded-xl border bg-card overflow-hidden shadow-sm transition-all duration-200 ease-out hover:border-primary/25 hover:shadow-md ${
+                          isDragging ? "border-primary/40 shadow-lg" : "border-border"
+                        }`}
+                      >
+                        <div className="flex w-full items-center justify-between gap-3 bg-card p-4 text-left transition-colors duration-200 hover:bg-secondary/20 sm:p-5">
+                          <button
+                            {...attributes}
+                            {...listeners}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Arrastar matéria ${subject.name}`}
+                            className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
                           >
-                            <div className="flex items-start gap-3">
-                              <BookOpen className="h-4 w-4 text-muted-foreground mt-0.5" />
-                              <div>
-                                <h4 className="text-sm font-semibold text-foreground">
-                                  {topic.name}
-                                </h4>
-                                <span className="inline-block rounded-full bg-secondary border border-border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">
-                                  {topic._count.flashcards}{" "}
-                                  {topic._count.flashcards === 1 ? "card" : "cards"}
-                                </span>
-                              </div>
+                            <GripVertical className="h-4 w-4" />
+                          </button>
+                          <div
+                            onClick={() => toggleExpand(subject.id)}
+                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 sm:gap-4"
+                          >
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 sm:h-11 sm:w-11">
+                              <Folder className="h-5 w-5 text-primary" aria-hidden="true" />
                             </div>
-
-                            <div className="flex items-center gap-2 self-start sm:self-center pt-2 sm:pt-0">
-                              <button
-                                onClick={() => handleOpenViewAll(topic.id, topic.name)}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 px-4 py-2 text-xs font-semibold text-primary transition-colors"
-                                title="Visualizar todos os flashcards deste assunto"
-                              >
-                                <List className="h-4 w-4" />
-                                Visualizar todos
-                              </button>
-                              {topic._count.flashcards > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  <Link
-                                    href={`/dashboard/flashcards/consultation?topicId=${topic.id}`}
-                                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-4 py-2 text-xs font-semibold text-foreground transition-colors"
-                                    title="Consulta visual — apenas revela o gabarito, sem IA e sem atualizar ProgressCard"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                    Consultar (visual)
-                                  </Link>
-                                </div>
+                            <div className="min-w-0">
+                              <h3 className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg">
+                                {subject.name}
+                              </h3>
+                              <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                                {subject.topics.length}{" "}
+                                {subject.topics.length === 1 ? "assunto" : "assuntos"} ·{" "}
+                                {totalCards} {totalCards === 1 ? "card" : "cards"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                            <Link
+                              href={`/dashboard/flashcards/consultation?subjectId=${subject.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-all duration-200 hover:bg-primary/20 active:scale-[0.98]"
+                            >
+                              Estudar
+                            </Link>
+                            <div
+                              onClick={() => toggleExpand(subject.id)}
+                              className="hidden cursor-pointer text-muted-foreground sm:block"
+                              aria-hidden="true"
+                            >
+                              {isExpanded ? (
+                                <ChevronUp className="h-5 w-5 text-primary" />
                               ) : (
-                                <span className="rounded-lg border border-dashed border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground select-none">
-                                  Sem cards cadastrados
-                                </span>
+                                <ChevronDown className="h-5 w-5" />
                               )}
-                              <button
-                                onClick={() =>
-                                  openConfirmDeleteTopic(topic.id, topic.name)
+                            </div>
+                            <button
+                              onClick={(e) =>
+                                openConfirmDeleteSubject(subject.id, subject.name, e)
+                              }
+                              disabled={saving}
+                              aria-label={`Excluir matéria ${subject.name}`}
+                              className="rounded-lg p-1.5 text-muted-foreground transition-colors duration-200 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="border-t border-border/40 bg-secondary/10 px-5 py-4 animate-in slide-in-from-top-4 duration-200">
+                            <SortableContext
+                              items={subject.topics.map((t) => t.id)}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              <div className="space-y-2">
+                                {subject.topics.length === 0 ? (
+                                  <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+                                    Nenhum assunto cadastrado para esta matéria.
+                                  </p>
+                                ) : (
+                                  subject.topics.map((topic) => (
+                                    <SortableTopicWrapper key={topic.id} topic={topic}>
+                                      {({ attributes: tAttr, listeners: tList, isDragging: tDragging }) => (
+                                        <div
+                                          className={`flex flex-col sm:flex-row sm:items-center justify-between py-3.5 gap-4 divide-y sm:divide-y-0 divide-border/30 rounded-lg border bg-card/50 px-3 transition-colors ${
+                                            tDragging
+                                              ? "border-primary/30 bg-secondary/40 shadow-sm"
+                                              : "border-transparent"
+                                          }`}
+                                        >
+                                          <div className="flex items-start gap-2 flex-1 min-w-0">
+                                            <button
+                                              {...tAttr}
+                                              {...tList}
+                                              aria-label={`Arrastar assunto ${topic.name}`}
+                                              className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
+                                            >
+                                              <GripVertical className="h-3.5 w-3.5" />
+                                            </button>
+                                            <BookOpen className="h-4 w-4 text-muted-foreground mt-1 shrink-0" />
+                                            <div className="min-w-0">
+                                              <h4 className="text-sm font-semibold text-foreground truncate">
+                                                {topic.name}
+                                              </h4>
+                                              <span className="inline-block rounded-full bg-secondary border border-border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">
+                                                {topic._count.flashcards}{" "}
+                                                {topic._count.flashcards === 1 ? "card" : "cards"}
+                                              </span>
+                                            </div>
+                                          </div>
+
+                                          <div className="flex items-center gap-2 self-start sm:self-center pt-2 sm:pt-0 shrink-0">
+                                            <button
+                                              onClick={() => handleOpenViewAll(topic.id, topic.name)}
+                                              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 px-4 py-2 text-xs font-semibold text-primary transition-colors"
+                                              title="Visualizar todos os flashcards deste assunto"
+                                            >
+                                              <List className="h-4 w-4" />
+                                              Visualizar todos
+                                            </button>
+                                            {topic._count.flashcards > 0 ? (
+                                              <div className="flex flex-wrap gap-2">
+                                                <Link
+                                                  href={`/dashboard/flashcards/consultation?topicId=${topic.id}`}
+                                                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-4 py-2 text-xs font-semibold text-foreground transition-colors"
+                                                  title="Consulta visual — apenas revela o gabarito, sem IA e sem atualizar ProgressCard"
+                                                >
+                                                  <Eye className="h-4 w-4" />
+                                                  Consultar (visual)
+                                                </Link>
+                                              </div>
+                                            ) : (
+                                              <span className="rounded-lg border border-dashed border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground select-none">
+                                                Sem cards cadastrados
+                                              </span>
+                                            )}
+                                            <button
+                                              onClick={() =>
+                                                openConfirmDeleteTopic(topic.id, topic.name)
+                                              }
+                                              disabled={saving}
+                                              aria-label={`Excluir assunto ${topic.name}`}
+                                              className="rounded p-0.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </SortableTopicWrapper>
+                                  ))
+                                )}
+                              </div>
+                            </SortableContext>
+
+                            <div className="mt-4 flex gap-2">
+                              <input
+                                value={newTopicNames[subject.id] || ""}
+                                onChange={(e) =>
+                                  setNewTopicNames((prev) => ({
+                                    ...prev,
+                                    [subject.id]: e.target.value,
+                                  }))
                                 }
-                                disabled={saving}
-                                aria-label={`Excluir assunto ${topic.name}`}
-                                className="rounded p-0.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                onKeyDown={(e) =>
+                                  e.key === "Enter" && handleCreateTopic(subject.id)
+                                }
+                                placeholder="Novo assunto..."
+                                className="h-9 flex-1 rounded-lg border border-input bg-secondary/60 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                              />
+                              <button
+                                onClick={() => handleCreateTopic(subject.id)}
+                                disabled={saving || !(newTopicNames[subject.id] || "").trim()}
+                                className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-50"
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <Plus className="h-4 w-4" />
                               </button>
                             </div>
                           </div>
-                        ))
-                      )}
-                    </div>
-
-                    <div className="mt-4 flex gap-2">
-                      <input
-                        value={newTopicNames[subject.id] || ""}
-                        onChange={(e) =>
-                          setNewTopicNames((prev) => ({
-                            ...prev,
-                            [subject.id]: e.target.value,
-                          }))
-                        }
-                        onKeyDown={(e) =>
-                          e.key === "Enter" && handleCreateTopic(subject.id)
-                        }
-                        placeholder="Novo assunto..."
-                        className="h-9 flex-1 rounded-lg border border-input bg-secondary/60 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <button
-                        onClick={() => handleCreateTopic(subject.id)}
-                        disabled={saving || !(newTopicNames[subject.id] || "").trim()}
-                        className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/85 disabled:opacity-50"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                        )}
+                      </div>
+                    )}
+                  </SortableSubjectWrapper>
+                )
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       {/* Dialog Visualizar todos - lista de flashcards por assunto */}

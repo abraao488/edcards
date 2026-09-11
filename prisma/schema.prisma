@@ -188,6 +188,7 @@ model Subject {
   userId        String
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   name          String
+  order         Int            @default(0)
   topics        Topic[]
   studySessions StudySession[]
 
@@ -199,6 +200,7 @@ model Topic {
   subjectId     String
   subject       Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   name          String
+  order         Int            @default(0)
   createdAt     DateTime       @default(now())
   flashcards    Flashcard[]
   studySessions StudySession[]

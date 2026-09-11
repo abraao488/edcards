@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { useFormState } from "react-dom"
 import { register } from "@/lib/auth/actions"
 import { Brain } from "lucide-react"
@@ -7,6 +8,7 @@ import Link from "next/link"
 
 export function RegisterForm() {
   const [state, formAction] = useFormState(register, undefined)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
 
   return (
     <div className="w-full max-w-md space-y-8 rounded-xl border border-border bg-card p-8">
@@ -17,7 +19,22 @@ export function RegisterForm() {
           Comece a revisar com inteligência
         </p>
       </div>
-      <form action={formAction} className="space-y-4">
+      <form
+        action={formAction}
+        className="space-y-4"
+        onSubmit={(e) => {
+          const form = e.currentTarget
+          const password = (form.elements.namedItem("password") as HTMLInputElement)?.value
+          const confirmPassword = (form.elements.namedItem("confirmPassword") as HTMLInputElement)?.value
+
+          if (password !== confirmPassword) {
+            e.preventDefault()
+            setConfirmError("As senhas não coincidem")
+            return
+          }
+          setConfirmError(null)
+        }}
+      >
         <div>
           <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="email">
             Email
@@ -43,6 +60,26 @@ export function RegisterForm() {
             minLength={6}
             className="w-full rounded-lg border border-border bg-secondary px-4 py-2 text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             placeholder="••••••••"
+            onChange={() => {
+              if (confirmError) setConfirmError(null)
+            }}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="confirmPassword">
+            Confirmar senha
+          </label>
+          <input
+            id="confirmPassword"
+            name="confirmPassword"
+            type="password"
+            required
+            minLength={6}
+            className="w-full rounded-lg border border-border bg-secondary px-4 py-2 text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            placeholder="••••••••"
+            onChange={() => {
+              if (confirmError) setConfirmError(null)
+            }}
           />
         </div>
         <div>
@@ -57,6 +94,9 @@ export function RegisterForm() {
             placeholder="Ex: Polícia Militar do Alagoas"
           />
         </div>
+        {confirmError && (
+          <p className="text-sm text-destructive">{confirmError}</p>
+        )}
         {state?.error && (
           <p className="text-sm text-destructive">{state.error}</p>
         )}

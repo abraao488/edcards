@@ -27,8 +27,14 @@ export async function createSubject(name: string): Promise<{ success: true }> {
     throw new Error("Informe o nome da matéria.")
   }
 
+  const maxOrder = await prisma.subject.aggregate({
+    where: { userId: user.id },
+    _max: { order: true },
+  })
+  const nextOrder = (maxOrder._max.order ?? -1) + 1
+
   await prisma.subject.create({
-    data: { name: trimmed, userId: user.id },
+    data: { name: trimmed, userId: user.id, order: nextOrder },
   })
 
   revalidateCadastroPaths()
@@ -56,8 +62,14 @@ export async function createTopic(
     throw new Error("Matéria não encontrada.")
   }
 
+  const maxOrder = await prisma.topic.aggregate({
+    where: { subjectId },
+    _max: { order: true },
+  })
+  const nextOrder = (maxOrder._max.order ?? -1) + 1
+
   await prisma.topic.create({
-    data: { name: trimmed, subjectId },
+    data: { name: trimmed, subjectId, order: nextOrder },
   })
 
   revalidateCadastroPaths()
@@ -176,10 +188,10 @@ export async function getSubjectsWithTopics(): Promise<SubjectWithTopics[]> {
     where: { userId: user.id },
     include: {
       topics: {
-        orderBy: { name: "asc" },
+        orderBy: { order: "asc" },
       },
     },
-    orderBy: { name: "asc" },
+    orderBy: { order: "asc" },
   })
 }
 
@@ -205,4 +217,48 @@ export async function getFlashcardsForConsultation(subjectId: string) {
       difficultyLevel: true,
     },
   })
+}
+
+export async function updateSubjectOrder(items: { id: string; order: number }[]) {
+  const user = await ensureUserExists()
+  if (!Array.isArray(items) || items.length === 0) return { success: true }
+  const ids = items.map((i) => i.id)
+  const owned = await prisma.subject.findMany({
+    where: { id: { in: ids }, userId: user.id },
+    select: { id: true },
+  })
+  const ownedIds = new Set(owned.map((o) => o.id))
+  const validItems = items.filter((i) => ownedIds.has(i.id))
+  if (validItems.length === 0) throw new Error("Nenhum item válido para reordenar")
+  await prisma.$transaction(
+    validItems.map(({ id, order }) =>
+      prisma.subject.updateMany({ where: { id, userId: user.id }, data: { order } })
+    )
+  )
+  revalidateCadastroPaths()
+  return { success: true }
+}
+
+export async function updateOrder(items: { id: string; order: number }[]) {
+  return updateSubjectOrder(items)
+}
+
+export async function updateTopicOrder(items: { id: string; order: number }[]) {
+  const user = await ensureUserExists()
+  if (!Array.isArray(items) || items.length === 0) return { success: true }
+  const ids = items.map((i) => i.id)
+  const owned = await prisma.topic.findMany({
+    where: { id: { in: ids }, subject: { userId: user.id } },
+    select: { id: true },
+  })
+  const ownedIds = new Set(owned.map((o) => o.id))
+  const validItems = items.filter((i) => ownedIds.has(i.id))
+  if (validItems.length === 0) throw new Error("Nenhum item válido para reordenar")
+  await prisma.$transaction(
+    validItems.map(({ id, order }) =>
+      prisma.topic.updateMany({ where: { id, subject: { userId: user.id } }, data: { order } })
+    )
+  )
+  revalidateCadastroPaths()
+  return { success: true }
 }
