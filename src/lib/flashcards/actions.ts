@@ -62,6 +62,13 @@ export async function createFlashcard(deckId: string, formData: FormData) {
   }
 
   await prisma.$transaction(async (tx) => {
+    // nextOrder scoped by topicId if present, else by deckId
+    const maxOrder = await tx.flashcard.aggregate({
+      where: topicId ? { topicId } : { deckId },
+      _max: { order: true },
+    })
+    const baseOrder = (maxOrder._max.order ?? -1) + 1
+
     if (cardType === "REVERSED") {
       const card1 = await tx.flashcard.create({
         data: {
@@ -70,6 +77,7 @@ export async function createFlashcard(deckId: string, formData: FormData) {
           cardType: "BASIC",
           deckId,
           topicId,
+          order: baseOrder,
           nextReview: new Date(),
           currentCycleDay: 0,
         },
@@ -92,6 +100,7 @@ export async function createFlashcard(deckId: string, formData: FormData) {
           cardType: "BASIC",
           deckId,
           topicId,
+          order: baseOrder + 1,
           nextReview: new Date(),
           currentCycleDay: 0,
         },
@@ -114,6 +123,7 @@ export async function createFlashcard(deckId: string, formData: FormData) {
           cardType,
           deckId,
           topicId,
+          order: baseOrder,
           nextReview: new Date(),
           currentCycleDay: 0,
         },
@@ -152,7 +162,7 @@ export async function getFlashcardsByTopic(topicId: string) {
 
   return prisma.flashcard.findMany({
     where: { topicId, deck: { userId: user.id } },
-    orderBy: { createdAt: "asc" },
+    orderBy: { order: "asc" },
     select: {
       id: true,
       front: true,
@@ -160,8 +170,31 @@ export async function getFlashcardsByTopic(topicId: string) {
       cardType: true,
       createdAt: true,
       topicId: true,
+      order: true,
     },
   })
+}
+
+export async function updateFlashcardOrder(items: { id: string; order: number }[]) {
+  const user = await ensureUserExists()
+  if (!Array.isArray(items) || items.length === 0) return { success: true as const }
+  const ids = items.map((i) => i.id)
+  const owned = await prisma.flashcard.findMany({
+    where: { id: { in: ids }, deck: { userId: user.id } },
+    select: { id: true },
+  })
+  const ownedIds = new Set(owned.map((o) => o.id))
+  const validItems = items.filter((i) => ownedIds.has(i.id))
+  if (validItems.length === 0) throw new Error("Nenhum item válido para reordenar")
+  await prisma.$transaction(
+    validItems.map(({ id, order }) =>
+      prisma.flashcard.updateMany({ where: { id, deck: { userId: user.id } }, data: { order } })
+    )
+  )
+  revalidatePath("/materias")
+  revalidatePath("/flashcards")
+  revalidatePath("/dashboard/flashcards")
+  return { success: true as const }
 }
 
 /**

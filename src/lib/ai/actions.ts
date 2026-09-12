@@ -456,12 +456,18 @@ export async function injectFlashcardsToDatabase(
 
   const createdCards = []
   for (const card of classifiedCards) {
+    const maxOrder = await prisma.flashcard.aggregate({
+      where: card.topicId ? { topicId: card.topicId } : { deckId: deck.id },
+      _max: { order: true },
+    })
+    const nextOrder = (maxOrder._max.order ?? -1) + 1
     const flashcard = await prisma.flashcard.create({
       data: {
         front: card.front,
         back: card.back,
         deckId: deck.id,
         topicId: card.topicId || null,
+        order: nextOrder,
       },
     })
 

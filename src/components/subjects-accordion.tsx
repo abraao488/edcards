@@ -33,6 +33,7 @@ import {
   getFlashcardsByTopic,
   updateFlashcard,
   deleteFlashcard,
+  updateFlashcardOrder,
 } from "@/lib/flashcards/actions"
 import { EmptyState } from "@/components/empty-state"
 import {
@@ -147,6 +148,33 @@ function SortableTopicWrapper({
   )
 }
 
+function SortableFlashcardWrapper({
+  card,
+  children,
+}: {
+  card: { id: string }
+  children: (p: {
+    attributes: ReturnType<typeof useSortable>["attributes"]
+    listeners: ReturnType<typeof useSortable>["listeners"]
+    isDragging: boolean
+  }) => React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+  })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  }
+  return (
+    <div ref={setNodeRef} style={style}>
+      {children({ attributes, listeners, isDragging })}
+    </div>
+  )
+}
+
 export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
   const router = useRouter()
   const [localSubjects, setLocalSubjects] = useState<SubjectWithTopics[]>(subjects)
@@ -178,6 +206,7 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
     cardType: string
     createdAt: Date | string
     topicId: string | null
+    order: number
   }
   const [viewAllTopic, setViewAllTopic] = useState<{ id: string; name: string } | null>(null)
   const [topicCards, setTopicCards] = useState<TopicCard[]>([])
@@ -359,6 +388,27 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
       }
     }
     // se arrastou entre matérias diferentes, ignora (prompt diz: assuntos dentro de uma mesma matéria)
+  }
+
+  async function handleFlashcardDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const activeId = String(active.id)
+    const overId = String(over.id)
+    const oldIndex = topicCards.findIndex((c) => c.id === activeId)
+    const newIndex = topicCards.findIndex((c) => c.id === overId)
+    if (oldIndex === -1 || newIndex === -1) return
+    const previous = [...topicCards]
+    const reordered = arrayMove(topicCards, oldIndex, newIndex)
+    setTopicCards(reordered)
+    const items = reordered.map((c, idx) => ({ id: c.id, order: idx }))
+    try {
+      await updateFlashcardOrder(items)
+    } catch (err) {
+      console.error("Erro ao reordenar flashcards:", err)
+      showToast(err instanceof Error ? err.message : "Erro ao reordenar flashcards", "error")
+      setTopicCards(previous)
+    }
   }
 
   async function handleOpenViewAll(topicId: string, topicName: string) {
@@ -785,7 +835,7 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto -mx-4 px-4 space-y-3 py-2">
+          <div className="flex-1 overflow-y-auto -mx-4 px-4 py-2">
             {loadingCards ? (
               <div className="flex items-center justify-center py-10">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -795,97 +845,116 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
                 Nenhum card aqui ainda.
               </p>
             ) : (
-              topicCards.map((card) => {
-                const isEditing = editingCardId === card.id
-                const isViewing = viewCardId === card.id
-                return (
-                  <div
-                    key={card.id}
-                    className="rounded-xl border border-border bg-card p-4 shadow-sm"
-                  >
-                    {isEditing ? (
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-foreground">Pergunta (Frente)</label>
-                          <textarea
-                            value={editFront}
-                            onChange={(e) => setEditFront(e.target.value)}
-                            rows={2}
-                            className="w-full rounded-lg border border-input bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                            placeholder="Pergunta"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-foreground">Resposta (Verso)</label>
-                          <textarea
-                            value={editBack}
-                            onChange={(e) => setEditBack(e.target.value)}
-                            rows={2}
-                            className="w-full rounded-lg border border-input bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                            placeholder="Resposta"
-                          />
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={cancelEditCard}
-                            disabled={savingCard}
-                            className="rounded-lg border border-border bg-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-secondary/80 disabled:opacity-50"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={handleSaveEditCard}
-                            disabled={savingCard}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                          >
-                            {savingCard ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                            Salvar
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium text-foreground line-clamp-3">
-                            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1">P:</span>
-                            {card.front}
-                          </p>
-                          {isViewing && (
-                            <p className="text-sm text-muted-foreground border-t border-border/40 pt-2">
-                              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-primary mr-1">R:</span>
-                              {card.back}
-                            </p>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFlashcardDragEnd}>
+                <SortableContext items={topicCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-3">
+                    {topicCards.map((card) => {
+                      const isEditing = editingCardId === card.id
+                      const isViewing = viewCardId === card.id
+                      return (
+                        <SortableFlashcardWrapper key={card.id} card={card}>
+                          {({ attributes, listeners, isDragging }) => (
+                            <div
+                              className={`rounded-xl border bg-card p-4 shadow-sm transition-all ${isDragging ? "border-primary/40 shadow-md opacity-60" : "border-border"}`}
+                            >
+                              {isEditing ? (
+                                <div className="space-y-3">
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-foreground">Pergunta (Frente)</label>
+                                    <textarea
+                                      value={editFront}
+                                      onChange={(e) => setEditFront(e.target.value)}
+                                      rows={2}
+                                      className="w-full rounded-lg border border-input bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                      placeholder="Pergunta"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-foreground">Resposta (Verso)</label>
+                                    <textarea
+                                      value={editBack}
+                                      onChange={(e) => setEditBack(e.target.value)}
+                                      rows={2}
+                                      className="w-full rounded-lg border border-input bg-secondary/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                      placeholder="Resposta"
+                                    />
+                                  </div>
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      onClick={cancelEditCard}
+                                      disabled={savingCard}
+                                      className="rounded-lg border border-border bg-secondary px-4 py-2 text-xs font-semibold text-foreground hover:bg-secondary/80 disabled:opacity-50"
+                                    >
+                                      Cancelar
+                                    </button>
+                                    <button
+                                      onClick={handleSaveEditCard}
+                                      disabled={savingCard}
+                                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                                    >
+                                      {savingCard ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                                      Salvar
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex gap-2">
+                                  <button
+                                    {...attributes}
+                                    {...listeners}
+                                    aria-label={`Arrastar flashcard ${card.front.slice(0, 20)}`}
+                                    className="mt-1 shrink-0 self-start rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
+                                  >
+                                    <GripVertical className="h-4 w-4" />
+                                  </button>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="space-y-2">
+                                      <p className="text-sm font-medium text-foreground line-clamp-3">
+                                        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1">P:</span>
+                                        {card.front}
+                                      </p>
+                                      {isViewing && (
+                                        <p className="text-sm text-muted-foreground border-t border-border/40 pt-2">
+                                          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-primary mr-1">R:</span>
+                                          {card.back}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-1.5 justify-end flex-wrap">
+                                      <button
+                                        onClick={() => setViewCardId(isViewing ? null : card.id)}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors"
+                                        title={isViewing ? "Ocultar resposta" : "Visualizar pergunta e resposta"}
+                                      >
+                                        {isViewing ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                        {isViewing ? "Ocultar" : "Visualizar"}
+                                      </button>
+                                      <button
+                                        onClick={() => startEditCard(card)}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                        Editar
+                                      </button>
+                                      <button
+                                        onClick={() => setConfirmDeleteCard({ id: card.id, front: card.front })}
+                                        className="inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        Excluir
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           )}
-                        </div>
-                        <div className="mt-3 flex items-center gap-1.5 justify-end flex-wrap">
-                          <button
-                            onClick={() => setViewCardId(isViewing ? null : card.id)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors"
-                            title={isViewing ? "Ocultar resposta" : "Visualizar pergunta e resposta"}
-                          >
-                            {isViewing ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            {isViewing ? "Ocultar" : "Visualizar"}
-                          </button>
-                          <button
-                            onClick={() => startEditCard(card)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-border bg-secondary/60 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteCard({ id: card.id, front: card.front })}
-                            className="inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Excluir
-                          </button>
-                        </div>
-                      </>
-                    )}
+                        </SortableFlashcardWrapper>
+                      )
+                    })}
                   </div>
-                )
-              })
+                </SortableContext>
+              </DndContext>
             )}
           </div>
 

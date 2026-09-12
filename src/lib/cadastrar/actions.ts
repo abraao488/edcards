@@ -67,6 +67,12 @@ export async function createFlashcardWithTopic(
   const activeProfile = await getOrCreateActiveProfile(user.id, user.email || "")
 
   await prisma.$transaction(async (tx) => {
+    const maxOrder = await tx.flashcard.aggregate({
+      where: { topicId },
+      _max: { order: true },
+    })
+    const baseOrder = (maxOrder._max.order ?? -1) + 1
+
     if (cardType === "REVERSED") {
       const card1 = await tx.flashcard.create({
         data: {
@@ -75,6 +81,7 @@ export async function createFlashcardWithTopic(
           cardType: "BASIC",
           deckId: deck!.id,
           topicId,
+          order: baseOrder,
           nextReview: new Date(),
           currentCycleDay: 0,
         },
@@ -97,6 +104,7 @@ export async function createFlashcardWithTopic(
           cardType: "BASIC",
           deckId: deck!.id,
           topicId,
+          order: baseOrder + 1,
           nextReview: new Date(),
           currentCycleDay: 0,
         },
@@ -119,6 +127,7 @@ export async function createFlashcardWithTopic(
           cardType,
           deckId: deck!.id,
           topicId,
+          order: baseOrder,
           nextReview: new Date(),
           currentCycleDay: 0,
         },
