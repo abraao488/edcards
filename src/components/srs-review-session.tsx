@@ -32,6 +32,7 @@ interface FlashcardData {
   id: string
   currentCycleDay: number
   firstReviewAt?: Date | string | null
+  hasChosenEvalMode?: boolean
   isCycleEnded?: boolean
   difficultyStage?: DifficultyStage
   flashcard: {
@@ -137,6 +138,23 @@ export function SRSReviewSession({
 
   const currentCard = cards[currentIndex]
 
+  // Helper: decide evalMode inicial baseado no estado persistido do card
+  // CHOICE apenas quando firstReviewAt existe E hasChosenEvalMode ainda é false (exatamente 2ª resolução)
+  const getInitialEvalMode = (card: FlashcardData | undefined): "CHOICE" | "AI" => {
+    if (!card) return "CHOICE"
+    if (!card.firstReviewAt) return "CHOICE" // 1ª resolução: step COMPARING mostra botão de 1ª revisão, evalMode irrelevante
+    if (card.hasChosenEvalMode) return "AI" // 3ª+ resolução: pula escolha, vai direto pro fluxo automático (IA)
+    return "CHOICE" // 2ª resolução: mostra escolha Autoavaliar / Analisar com IA
+  }
+
+  // Sincroniza evalMode quando o card atual muda ou quando entra em TYPING/COMPARING
+  useEffect(() => {
+    if (step === "TYPING" || step === "COMPARING") {
+      setEvalMode(getInitialEvalMode(currentCard))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, cards, step])
+
   // Focus input automatically when typing step starts
   useEffect(() => {
     if (step === "TYPING" && inputRef.current) {
@@ -213,7 +231,7 @@ export function SRSReviewSession({
     setInputValue("")
     setAiFeedback(null)
     setAiError(null)
-    setEvalMode("CHOICE")
+    setEvalMode(getInitialEvalMode(currentCard))
     if (!sessionStartTime) {
       setSessionStartTime(Date.now())
     }
@@ -223,7 +241,7 @@ export function SRSReviewSession({
     e.preventDefault()
     if (!inputValue.trim()) return
     setStep("COMPARING")
-    setEvalMode("CHOICE")
+    setEvalMode(getInitialEvalMode(currentCard))
   }
 
   const handleConfirmFirstReview = async () => {
@@ -242,12 +260,18 @@ export function SRSReviewSession({
 
       setTimeout(async () => {
         if (currentIndex + 1 < cards.length) {
+          const nextCard = cards[currentIndex + 1]
+          setCards((prev) =>
+            prev.map((c, i) =>
+              i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
+            )
+          )
           setCurrentIndex((prev) => prev + 1)
           setStep("TYPING")
           setInputValue("")
           setLastDifficulty(null)
           setAiFeedback(null)
-          setEvalMode("CHOICE")
+          setEvalMode(getInitialEvalMode(nextCard))
         } else {
           recordStudyTime()
           setCards([])
@@ -270,13 +294,14 @@ export function SRSReviewSession({
   const handleNextQuizCard = () => {
     if (!currentCard) return
     if (currentIndex + 1 < cards.length) {
+      const nextCard = cards[currentIndex + 1]
       setCurrentIndex((prev) => prev + 1)
       setStep("TYPING")
       setInputValue("")
       setLastDifficulty(null)
       setAiFeedback(null)
       setAiError(null)
-      setEvalMode("CHOICE")
+      setEvalMode(getInitialEvalMode(nextCard))
     } else {
       recordStudyTime()
       setCards([])
@@ -305,18 +330,25 @@ export function SRSReviewSession({
 
       setLastDifficulty(difficulty)
       decrementQueue()
+      // Marca localmente que a escolha já foi feita para não reexibir CHOICE no mesmo card recarregado
+      setCards((prev) =>
+        prev.map((c, i) =>
+          i === currentIndex ? { ...c, hasChosenEvalMode: true } : c
+        )
+      )
       setStep("FEEDBACK")
       setLoading(false)
 
       setTimeout(async () => {
         if (currentIndex + 1 < cards.length) {
+          const nextCard = cards[currentIndex + 1]
           setCurrentIndex((prev) => prev + 1)
           setStep("TYPING")
           setInputValue("")
           setLastDifficulty(null)
           setAiFeedback(null)
           setAiError(null)
-          setEvalMode("CHOICE")
+          setEvalMode(getInitialEvalMode(nextCard))
         } else {
           recordStudyTime()
           setCards([])
@@ -342,13 +374,14 @@ export function SRSReviewSession({
       setStep("FEEDBACK")
       setTimeout(async () => {
         if (currentIndex + 1 < cards.length) {
+          const nextCard = cards[currentIndex + 1]
           setCurrentIndex((prev) => prev + 1)
           setStep("TYPING")
           setInputValue("")
           setLastDifficulty(null)
           setAiFeedback(null)
           setAiError(null)
-          setEvalMode("CHOICE")
+          setEvalMode(getInitialEvalMode(nextCard))
         } else {
           recordStudyTime()
           setCards([])
@@ -393,12 +426,13 @@ export function SRSReviewSession({
       if (!isQuizMode) decrementQueue()
 
       if (currentIndex + 1 < cards.length) {
+        const nextCard = cards[currentIndex + 1]
         setCurrentIndex((prev) => prev + 1)
         setStep("TYPING")
         setInputValue("")
         setLastDifficulty(null)
         setAiFeedback(null)
-        setEvalMode("CHOICE")
+        setEvalMode(getInitialEvalMode(nextCard))
       } else {
         setCards([])
         setIsFocused(false)
@@ -515,9 +549,17 @@ export function SRSReviewSession({
   const subjectName = currentCard.flashcard.topic?.subject.name || "Sem Matéria"
   const topicName = currentCard.flashcard.topic?.name || "Sem Assunto"
   const isFirstTimeCard = !currentCard.firstReviewAt
+  const hasChosenEvalModeFlag = Boolean(currentCard.hasChosenEvalMode)
+  // 2ª resolução: firstReviewAt existe pela primeira vez E ainda não escolheu modo -> mostra CHOICE
+  const isSecondReviewChoice = Boolean(currentCard.firstReviewAt) && !hasChosenEvalModeFlag
+  // 3ª+ resolução: já passou pela escolha uma vez -> pula direto pro fluxo automático
+  const isThirdPlusAuto = Boolean(currentCard.firstReviewAt) && hasChosenEvalModeFlag
   const isEnded = Boolean(currentCard.isCycleEnded)
   // No Modo Consulta, ignoramos completamente a lógica de "1ª revisão" na UI
   const showFirstTimeUI = isFirstTimeCard && !isQuizMode
+  const showChoiceUI = isSecondReviewChoice && !isQuizMode && evalMode === "CHOICE"
+  const showAutoButtonsUI = isSecondReviewChoice && !isQuizMode && evalMode === "AUTO"
+  const showThirdPlusAutoUI = isThirdPlusAuto && !isQuizMode && evalMode === "AI"
   const isClozeCurrent = currentCard
     ? isClozeCard(currentCard.flashcard.front, currentCard.flashcard.cardType)
     : false
@@ -712,43 +754,59 @@ export function SRSReviewSession({
                       <ChevronRight className="h-4 w-4" />
                     </button>
                   </div>
-                ) : (
-                  !showFirstTimeUI &&
-                  evalMode === "CHOICE" && (
-                    <div className="pt-4 border-t border-border/40 text-center space-y-3">
-                      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
-                        Como avaliar sua resposta?
-                      </span>
-                      <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
-                        <button
-                          onClick={() => setEvalMode("AUTO")}
-                          className="flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 hover:bg-secondary hover:border-primary/40 px-4 py-3 text-sm font-semibold text-foreground transition-all shadow-sm"
-                        >
-                          <User className="h-4 w-4 text-primary" />
-                          Autoavaliar
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEvalMode("AI")
-                            handleConfirmReview()
-                          }}
-                          className="flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 px-4 py-3 text-sm font-semibold text-primary transition-all shadow-[0_0_15px_rgba(0,212,255,0.15)]"
-                        >
-                          <Sparkles className="h-4 w-4" />
-                          Analisar com IA
-                        </button>
-                      </div>
-                      {aiError && (
-                        <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-                          {aiError}
-                        </div>
-                      )}
+                ) : showChoiceUI ? (
+                  <div className="pt-4 border-t border-border/40 text-center space-y-3">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
+                      Como avaliar sua resposta? (escolha única — 2ª revisão)
+                    </span>
+                    <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
+                      <button
+                        onClick={() => setEvalMode("AUTO")}
+                        className="flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 hover:bg-secondary hover:border-primary/40 px-4 py-3 text-sm font-semibold text-foreground transition-all shadow-sm"
+                      >
+                        <User className="h-4 w-4 text-primary" />
+                        Autoavaliar
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEvalMode("AI")
+                          handleConfirmReview()
+                        }}
+                        className="flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 px-4 py-3 text-sm font-semibold text-primary transition-all shadow-[0_0_15px_rgba(0,212,255,0.15)]"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Analisar com IA
+                      </button>
                     </div>
-                  )
-                )}
+                    {aiError && (
+                      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+                        {aiError}
+                      </div>
+                    )}
+                  </div>
+                ) : showThirdPlusAutoUI ? (
+                  <div className="pt-4 border-t border-border/40 text-center space-y-3">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
+                      Avaliação automática (IA) — 3ª+ revisão
+                    </span>
+                    <button
+                      onClick={() => handleConfirmReview()}
+                      disabled={loading}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 px-6 py-3 text-sm font-semibold text-primary transition-all shadow-[0_0_15px_rgba(0,212,255,0.15)] disabled:opacity-50"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Analisar com IA
+                    </button>
+                    {aiError && (
+                      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+                        {aiError}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
-                {/* SELF EVALUATION BUTTONS (EASY, MEDIUM, HARD) — apenas modo real */}
-                {!isQuizMode && !showFirstTimeUI && evalMode === "AUTO" && (
+                {/* SELF EVALUATION BUTTONS (EASY, MEDIUM, HARD) — apenas na 2ª revisão quando escolheu Autoavaliar */}
+                {showAutoButtonsUI && (
                   <div className="pt-4 border-t border-border/40 text-center space-y-3 animate-in fade-in duration-200">
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
                       Selecione a dificuldade

@@ -171,6 +171,7 @@ async function loadQueueCards(dbUser: {
     id: pc.id,
     currentCycleDay: pc.currentCycleDay,
     firstReviewAt: pc.firstReviewAt,
+    hasChosenEvalMode: (pc as unknown as { hasChosenEvalMode?: boolean }).hasChosenEvalMode ?? false,
     isCycleEnded: pc.isCycleEnded,
     difficultyStage: (pc.difficultyStage as "EASY" | "MEDIUM" | "HARD") || "MEDIUM",
     flashcard: {

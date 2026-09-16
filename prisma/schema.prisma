@@ -158,20 +158,21 @@ model Document {
 }
 
 model ProgressCard {
-  id              String    @id @default(uuid())
-  profileId       String
-  profile         Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  flashcardId     String    @unique
-  flashcard       Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
-  lastRating      Int?
-  totalReviews    Int       @default(0)
-  currentCycleDay Int       @default(0)
-  nextReviewDate  DateTime  @default(now())
-  difficultyStage String    @default("MEDIUM")
-  isCycleEnded    Boolean   @default(false)
-  firstReviewAt   DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  profileId           String
+  profile             Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  flashcardId         String    @unique
+  flashcard           Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+  lastRating          Int?
+  totalReviews        Int       @default(0)
+  currentCycleDay     Int       @default(0)
+  nextReviewDate      DateTime  @default(now())
+  difficultyStage     String    @default("MEDIUM")
+  isCycleEnded        Boolean   @default(false)
+  firstReviewAt       DateTime?
+  hasChosenEvalMode   Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 model StudyLog {

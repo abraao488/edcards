@@ -337,6 +337,8 @@ export async function submitSRSReview(
   const firstReviewAt = progressCard.firstReviewAt || new Date()
 
   // 3. Update ProgressCard and Flashcard in database
+  // Marca que a escolha Autoavaliar/IA já foi feita (apenas uma vez, na 2ª resolução)
+  const shouldMarkChoice = !progressCard.hasChosenEvalMode
   await prisma.$transaction([
     prisma.progressCard.update({
       where: { id: progressCardId },
@@ -348,6 +350,7 @@ export async function submitSRSReview(
         difficultyStage: difficulty,
         isCycleEnded: srsResult.isCycleEnded,
         firstReviewAt,
+        ...(shouldMarkChoice ? { hasChosenEvalMode: true } : {}),
       },
     }),
     prisma.flashcard.update({
@@ -429,6 +432,7 @@ export async function ensureProgressCardsForFlashcards(
     id: pc.id,
     currentCycleDay: pc.currentCycleDay,
     firstReviewAt: pc.firstReviewAt,
+    hasChosenEvalMode: (pc as unknown as { hasChosenEvalMode?: boolean }).hasChosenEvalMode ?? false,
     isCycleEnded: pc.isCycleEnded,
     difficultyStage: (pc.difficultyStage as DifficultyStage) || "MEDIUM",
     flashcard: {
