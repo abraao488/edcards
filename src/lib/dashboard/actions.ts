@@ -69,15 +69,30 @@ async function calculateStreak(userId: string): Promise<number> {
     }
 
     if (diffDays === 1) {
-      const todayReviews = await prisma.flashcardReview.findFirst({
+      const todayActivity = await prisma.flashcardReview.findFirst({
         where: {
           userId,
           date: { gte: today, lt: tomorrow },
         },
         select: { id: true },
       })
+      // fallback: StudySession também conta como atividade se não houve review
+      let hasToday = Boolean(todayActivity)
+      if (!hasToday) {
+        const todaySession = await prisma.studySession.findFirst({
+          where: {
+            userId,
+            OR: [
+              { startedAt: { gte: today, lt: tomorrow } },
+              { createdAt: { gte: today, lt: tomorrow } },
+            ],
+          },
+          select: { id: true },
+        })
+        hasToday = Boolean(todaySession)
+      }
 
-      if (todayReviews) {
+      if (hasToday) {
         const updated = await prisma.userSettings.update({
           where: { userId },
           data: {
@@ -87,9 +102,12 @@ async function calculateStreak(userId: string): Promise<number> {
         })
         return updated.streakCount
       }
+      // sem atividade hoje ainda: mantém streak anterior até o fim do dia (não zera)
+      // cai no recompute abaixo que retornará streak baseado em ontem
     }
   }
 
+  // Fallback recompute: considera FlashcardReview + StudySession (cobre Gerenciador manual)
   const rawReviews = await prisma.$queryRaw<{ day: Date }[]>`
     SELECT DISTINCT DATE(date) as day
     FROM "FlashcardReview"
@@ -98,26 +116,74 @@ async function calculateStreak(userId: string): Promise<number> {
     LIMIT 365
   `
 
-  if (rawReviews.length === 0) return 0
+  const rawSessions = await prisma.$queryRaw<{ day: Date }[]>`
+    SELECT DISTINCT DATE(COALESCE("startedAt", "createdAt")) as day
+    FROM "StudySession"
+    WHERE "userId" = ${userId}
+    ORDER BY day DESC
+    LIMIT 365
+  `
+
+  // merge distinct days (ISO date string) e ordena DESC
+  const dayKey = (d: Date) => {
+    const nd = new Date(d)
+    nd.setHours(0, 0, 0, 0)
+    return nd.toISOString()
+  }
+  const merged = new Map<string, Date>()
+  for (const r of rawReviews) {
+    const nd = new Date(r.day)
+    nd.setHours(0, 0, 0, 0)
+    merged.set(dayKey(nd), nd)
+  }
+  for (const r of rawSessions) {
+    if (!r.day) continue
+    const nd = new Date(r.day)
+    nd.setHours(0, 0, 0, 0)
+    merged.set(dayKey(nd), nd)
+  }
+  const allDays = Array.from(merged.values()).sort(
+    (a, b) => b.getTime() - a.getTime()
+  )
+
+  if (allDays.length === 0) {
+    await prisma.userSettings.upsert({
+      where: { userId },
+      update: { streakCount: 0, lastStreakDate: null },
+      create: { userId, streakCount: 0, lastStreakDate: null },
+    })
+    return 0
+  }
+
+  const diffFromToday = Math.floor(
+    (today.getTime() - allDays[0].getTime()) / (1000 * 60 * 60 * 24)
+  )
+  if (diffFromToday > 1) {
+    // último dia ativo foi há mais de 1 dia → streak quebrado
+    await prisma.userSettings.upsert({
+      where: { userId },
+      update: { streakCount: 0, lastStreakDate: allDays[0] },
+      create: { userId, streakCount: 0, lastStreakDate: allDays[0] },
+    })
+    return 0
+  }
 
   let streak = 0
-  for (let i = 0; i < rawReviews.length; i++) {
-    const reviewDay = new Date(rawReviews[i].day)
-    reviewDay.setHours(0, 0, 0, 0)
-    const expectedDate = new Date(today)
-    expectedDate.setDate(expectedDate.getDate() - i)
-
-    if (reviewDay.getTime() === expectedDate.getTime()) {
+  for (let i = 0; i < allDays.length; i++) {
+    const expected = new Date(allDays[0])
+    expected.setDate(expected.getDate() - i)
+    if (allDays[i].getTime() === expected.getTime()) {
       streak++
     } else {
       break
     }
   }
 
+  const lastStreakDay = allDays[0]
   await prisma.userSettings.upsert({
     where: { userId },
-    update: { streakCount: streak, lastStreakDate: today },
-    create: { userId, streakCount: streak, lastStreakDate: today },
+    update: { streakCount: streak, lastStreakDate: lastStreakDay },
+    create: { userId, streakCount: streak, lastStreakDate: lastStreakDay },
   })
 
   return streak

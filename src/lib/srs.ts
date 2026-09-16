@@ -3,6 +3,7 @@
 import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
+import { ensureUserExists } from "@/lib/auth/sync"
 import {
   calculateNextSRSReview,
   CYCLES,
@@ -198,6 +199,7 @@ export async function skipFlashcard(progressCardId: string): Promise<void> {
 /**
  * Submits the first resolution of a card, setting firstReviewAt = now()
  * and scheduling nextReviewDate for 24h later without entering SRS cycle yet.
+ * FIX streak: também cria FlashcardReview para alimentar calculateStreak.
  */
 export async function submitFirstReview(progressCardId: string): Promise<{
   nextReviewDate: Date
@@ -210,6 +212,8 @@ export async function submitFirstReview(progressCardId: string): Promise<{
   if (!progressCard) {
     throw new Error("ProgressCard não encontrado")
   }
+
+  const user = await ensureUserExists()
 
   const now = new Date()
   const nextReviewDate = new Date(now.getTime() + 24 * 60 * 60 * 1000)
@@ -228,6 +232,16 @@ export async function submitFirstReview(progressCardId: string): Promise<{
       data: {
         nextReview: nextReviewDate,
         lastReview: now,
+      },
+    }),
+    prisma.flashcardReview.create({
+      data: {
+        flashcardId: progressCard.flashcardId,
+        userId: user.id,
+        date: now,
+        quality: 3,
+        difficultyLevel: "MEDIUM",
+        source: "SCHEDULED",
       },
     }),
   ])
@@ -336,7 +350,7 @@ export async function submitSRSReview(
   const rating = difficulty === "EASY" ? 5 : difficulty === "MEDIUM" ? 3 : 1
   const firstReviewAt = progressCard.firstReviewAt || new Date()
 
-  // 3. Update ProgressCard and Flashcard in database
+  // 3. Update ProgressCard and Flashcard in database + cria FlashcardReview para streak
   // Marca que a escolha Autoavaliar/IA já foi feita (apenas uma vez, na 2ª resolução)
   const shouldMarkChoice = !progressCard.hasChosenEvalMode
   await prisma.$transaction([
@@ -361,6 +375,18 @@ export async function submitSRSReview(
         cycleCompleted: srsResult.isCycleEnded,
         difficultyLevel:
           difficulty === "EASY" ? "EASY" : difficulty === "MEDIUM" ? "MEDIUM" : "HARD",
+      },
+    }),
+    prisma.flashcardReview.create({
+      data: {
+        flashcardId: progressCard.flashcardId,
+        userId,
+        date: new Date(),
+        quality: rating,
+        difficultyLevel: difficulty,
+        userAnswer: studentAnswer?.slice(0, 2000) || null,
+        aiEvaluation: feedback?.slice(0, 2000) || null,
+        source: "SCHEDULED",
       },
     }),
   ])
