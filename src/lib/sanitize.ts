@@ -1,4 +1,4 @@
-import DOMPurify from "isomorphic-dompurify"
+import sanitizeHtmlLib from "sanitize-html"
 
 export const ALLOWED_COLORS = {
   vermelho: "#ef4444",
@@ -16,32 +16,47 @@ export const ALLOWED_COLOR_VALUES = Object.values(ALLOWED_COLORS)
 // Hex regex for validation
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}){1,2}$/
 
+// Regexes exatas para cada cor permitida (case-insensitive) — usado no allowedStyles do sanitize-html
+const ALLOWED_COLOR_STYLE_REGEXES = ALLOWED_COLOR_VALUES.map(
+  (c) => new RegExp(`^${c}$`, "i")
+)
+
 /**
  * Sanitiza HTML permitindo apenas b/strong, i/em, u, span com style color, br, p, ul, ol, li, div.
  * Cores são restritas à lista ALLOWED_COLORS (normalizadas para lowerCase).
+ * Usa sanitize-html (puro CommonJS, sem jsdom) — compatível com serverless Vercel.
  */
 export function sanitizeHtml(dirty: string): string {
   if (!dirty) return ""
-  const clean = DOMPurify.sanitize(dirty, {
-    ALLOWED_TAGS: ["b", "strong", "i", "em", "u", "span", "br", "p", "ul", "ol", "li", "div"],
-    ALLOWED_ATTR: ["style"],
-    // Permitimos apenas style color; validação extra abaixo para restringir a 5 cores
+
+  const clean = sanitizeHtmlLib(dirty, {
+    allowedTags: ["b", "strong", "i", "em", "u", "span", "br", "p", "ul", "ol", "li", "div"],
+    allowedAttributes: {
+      span: ["style"],
+    },
+    allowedStyles: {
+      span: {
+        // Apenas cores hex exatas da whitelist
+        color: ALLOWED_COLOR_STYLE_REGEXES,
+      },
+    },
+    // Desativa atributos globais extras
+    allowedSchemes: [],
   })
 
-  // Segunda passada: filtrar span com cores não permitidas
-  // Como DOMPurify já removeu scripts, fazemos parse simples via regex para garantir whitelist de cores
-  // Substitui style="color: ..." inválido por span sem estilo
+  // Segunda passada: garante que qualquer style color remanescente seja apenas das 5 cores permitidas
+  // (sanitize-html já filtra, mas esta camada cobre variações como rgb, nomes de cor, ou hex fora da lista)
   return clean.replace(/<span[^>]*style="([^"]*)"[^>]*>/gi, (match, styleContent: string) => {
     const colorMatch = styleContent.match(/color\s*:\s*([^;]+)/i)
     if (!colorMatch) return "<span>"
     const color = colorMatch[1].trim().toLowerCase()
-    // Normaliza hex 3 dígitos para 6 se necessário? Mantém como está, apenas verifica se está na lista ou é hex válido da lista
     const normalized = color.toLowerCase()
-    const isAllowed = ALLOWED_COLOR_VALUES.map((c) => c.toLowerCase()).includes(normalized) || (ALLOWED_COLOR_VALUES as string[]).includes(normalized)
+    const isAllowed =
+      ALLOWED_COLOR_VALUES.map((c) => c.toLowerCase()).includes(normalized) ||
+      (ALLOWED_COLOR_VALUES as string[]).includes(normalized)
     if (isAllowed && HEX_COLOR_REGEX.test(normalized)) {
       return `<span style="color: ${normalized}">`
     }
-    // Se cor não permitida, remove estilo
     return "<span>"
   })
 }
@@ -51,9 +66,7 @@ export function sanitizeHtml(dirty: string): string {
  */
 export function stripHtml(html: string): string {
   if (!html) return ""
-  // Usa DOMPurify para evitar regex frágil com comentários etc, depois strip
   const withoutTags = html.replace(/<[^>]*>/g, "")
-  // Decodifica entidades básicas
   return withoutTags
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
