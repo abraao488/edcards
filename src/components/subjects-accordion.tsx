@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -20,6 +20,7 @@ import {
   Loader2,
   EyeOff,
   GripVertical,
+  Search,
 } from "lucide-react"
 import {
   createSubject,
@@ -218,6 +219,20 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
   const [viewCardId, setViewCardId] = useState<string | null>(null)
   const [confirmDeleteCard, setConfirmDeleteCard] = useState<{ id: string; front: string } | null>(null)
 
+  // 1) Busca por nome de matéria (ao lado do título da página)
+  const [subjectSearchOpen, setSubjectSearchOpen] = useState(false)
+  const [subjectSearchQuery, setSubjectSearchQuery] = useState("")
+  const subjectSearchInputRef = useRef<HTMLInputElement>(null)
+
+  // 2) Busca por nome de assunto dentro de cada matéria expandida
+  const [topicSearchState, setTopicSearchState] = useState<Record<string, { open: boolean; query: string }>>({})
+  const topicSearchInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  // 3) Busca por texto da pergunta dentro do modal Visualizar todos
+  const [cardSearchOpen, setCardSearchOpen] = useState(false)
+  const [cardSearchQuery, setCardSearchQuery] = useState("")
+  const cardSearchInputRef = useRef<HTMLInputElement>(null)
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
@@ -225,6 +240,54 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
   useEffect(() => {
     setLocalSubjects(subjects)
   }, [subjects])
+
+  // Foco automático ao abrir os inputs de busca
+  useEffect(() => {
+    if (subjectSearchOpen) subjectSearchInputRef.current?.focus()
+  }, [subjectSearchOpen])
+  useEffect(() => {
+    if (cardSearchOpen) cardSearchInputRef.current?.focus()
+  }, [cardSearchOpen])
+
+  // Filtros client-side (filter no array já carregado) — tempo real
+  const filteredSubjects = useMemo(() => {
+    const q = subjectSearchQuery.trim().toLowerCase()
+    if (!q) return localSubjects
+    return localSubjects.filter((s) => s.name.toLowerCase().includes(q))
+  }, [localSubjects, subjectSearchQuery])
+
+  const filteredCards = useMemo(() => {
+    const q = cardSearchQuery.trim().toLowerCase()
+    if (!q) return topicCards
+    return topicCards.filter((c) => c.front.toLowerCase().includes(q))
+  }, [topicCards, cardSearchQuery])
+
+  function getTopicSearch(subjectId: string) {
+    return topicSearchState[subjectId] ?? { open: false, query: "" }
+  }
+  function toggleTopicSearch(subjectId: string) {
+    const cur = getTopicSearch(subjectId)
+    const nextOpen = !cur.open
+    setTopicSearchState((prev) => ({
+      ...prev,
+      [subjectId]: { open: nextOpen, query: nextOpen ? cur.query : "" },
+    }))
+    if (nextOpen) {
+      window.setTimeout(() => topicSearchInputRefs.current[subjectId]?.focus(), 50)
+    }
+  }
+  function setTopicSearchQuery(subjectId: string, query: string) {
+    setTopicSearchState((prev) => ({
+      ...prev,
+      [subjectId]: { open: true, query },
+    }))
+  }
+  function clearTopicSearch(subjectId: string) {
+    setTopicSearchState((prev) => ({
+      ...prev,
+      [subjectId]: { open: false, query: "" },
+    }))
+  }
 
   const showToast = useCallback(
     (message: string, type: ToastState["type"] = "success") => {
@@ -417,6 +480,8 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
     setTopicCards([])
     setEditingCardId(null)
     setViewCardId(null)
+    setCardSearchQuery("")
+    setCardSearchOpen(false)
     try {
       const cards = await getFlashcardsByTopic(topicId)
       setTopicCards(cards as TopicCard[])
@@ -594,6 +659,46 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
         </DialogContent>
       </Dialog>
 
+      {/* 1) Busca por nome de matéria — ao lado do título da página (client-side, tempo real) */}
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-border bg-card px-3 py-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-sm font-bold tracking-tight text-foreground whitespace-nowrap">
+            Matérias {filteredSubjects.length !== localSubjects.length ? `(${filteredSubjects.length}/${localSubjects.length})` : `(${localSubjects.length})`}
+          </h2>
+          <button
+            onClick={() => {
+              setSubjectSearchOpen((prev) => {
+                const next = !prev
+                if (!next) setSubjectSearchQuery("")
+                return next
+              })
+            }}
+            aria-label={subjectSearchOpen ? "Fechar busca de matéria" : "Buscar matéria por nome"}
+            title={subjectSearchOpen ? "Fechar busca" : "Buscar matéria por nome"}
+            className={`shrink-0 rounded-lg border p-2 transition-colors ${subjectSearchOpen ? "border-primary/30 bg-primary/10 text-primary" : "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+          >
+            {subjectSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+          </button>
+        </div>
+        {subjectSearchOpen && (
+          <div className="flex flex-1 items-center gap-2 sm:max-w-sm sm:ml-4 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                ref={subjectSearchInputRef}
+                value={subjectSearchQuery}
+                onChange={(e) => setSubjectSearchQuery(e.target.value)}
+                placeholder="Buscar matéria por nome..."
+                className="h-9 w-full rounded-lg border border-input bg-secondary/60 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            {subjectSearchQuery && (
+              <span className="whitespace-nowrap text-xs text-muted-foreground">{filteredSubjects.length} encontrada(s)</span>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:gap-3">
         <input
           value={newSubjectName}
@@ -612,17 +717,36 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
       </div>
       <div className="mb-2" />
 
-      {localSubjects.length === 0 ? (
-        <EmptyState
-          icon={Folder}
-          title="Nenhuma matéria por aqui ainda"
-          description="Crie a primeira matéria no campo acima e ela aparece aqui na hora."
-        />
+      {filteredSubjects.length === 0 ? (
+        localSubjects.length === 0 ? (
+          <EmptyState
+            icon={Folder}
+            title="Nenhuma matéria por aqui ainda"
+            description="Crie a primeira matéria no campo acima e ela aparece aqui na hora."
+          />
+        ) : (
+          <div className="rounded-xl border border-dashed border-border bg-card/50 px-4 py-8 text-center">
+            <Search className="mx-auto h-6 w-6 text-muted-foreground mb-2" />
+            <p className="text-sm font-medium text-foreground">Nenhuma matéria encontrada</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Nenhum resultado para &quot;{subjectSearchQuery}&quot;
+            </p>
+            <button
+              onClick={() => {
+                setSubjectSearchQuery("")
+                setSubjectSearchOpen(false)
+              }}
+              className="mt-3 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary/80"
+            >
+              Limpar busca
+            </button>
+          </div>
+        )
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={localSubjects.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext items={filteredSubjects.map((s) => s.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-4">
-              {localSubjects.map((subject) => {
+              {filteredSubjects.map((subject) => {
                 const isExpanded = !!expandedIds[subject.id]
                 const totalCards = subject.topics.reduce(
                   (acc, t) => acc + t._count.flashcards,
@@ -697,10 +821,50 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
                           </div>
                         </div>
 
-                        {isExpanded && (
+                        {isExpanded && (() => {
+                          const ts = getTopicSearch(subject.id)
+                          const filteredTopics = (() => {
+                            const q = ts.query.trim().toLowerCase()
+                            if (!q) return subject.topics
+                            return subject.topics.filter((t) => t.name.toLowerCase().includes(q))
+                          })()
+                          return (
                           <div className="border-t border-border/40 bg-secondary/10 px-5 py-4 animate-in slide-in-from-top-4 duration-200">
+                            {/* 2) Busca por nome de assunto — dentro da matéria expandida (client-side, tempo real) */}
+                            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  Assuntos {filteredTopics.length !== subject.topics.length ? `(${filteredTopics.length}/${subject.topics.length})` : `(${subject.topics.length})`}
+                                </p>
+                                {subject.topics.length > 0 && (
+                                  <button
+                                    onClick={() => toggleTopicSearch(subject.id)}
+                                    aria-label={ts.open ? "Fechar busca de assunto" : "Buscar assunto por nome"}
+                                    title={ts.open ? "Fechar busca" : "Buscar assunto por nome"}
+                                    className={`rounded-lg border p-1.5 transition-colors ${ts.open ? "border-primary/30 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                                  >
+                                    {ts.open ? <X className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
+                                  </button>
+                                )}
+                              </div>
+                              {ts.open && (
+                                <div className="flex flex-1 items-center gap-2 sm:max-w-[240px] animate-in fade-in duration-200">
+                                  <div className="relative flex-1">
+                                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                    <input
+                                      ref={(el) => { topicSearchInputRefs.current[subject.id] = el }}
+                                      value={ts.query}
+                                      onChange={(e) => setTopicSearchQuery(subject.id, e.target.value)}
+                                      placeholder="Buscar assunto..."
+                                      className="h-8 w-full rounded-lg border border-input bg-card pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
                             <SortableContext
-                              items={subject.topics.map((t) => t.id)}
+                              items={filteredTopics.map((t) => t.id)}
                               strategy={verticalListSortingStrategy}
                             >
                               <div className="space-y-2">
@@ -708,8 +872,14 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
                                   <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
                                     Nenhum assunto cadastrado para esta matéria.
                                   </p>
+                                ) : filteredTopics.length === 0 ? (
+                                  <div className="rounded-lg border border-dashed border-border bg-card/30 px-3 py-4 text-center">
+                                    <p className="text-xs font-medium text-foreground">Nenhum assunto encontrado</p>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">Sem resultado para &quot;{ts.query}&quot;</p>
+                                    <button onClick={() => clearTopicSearch(subject.id)} className="mt-2 rounded border border-border bg-secondary px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-secondary/80">Limpar</button>
+                                  </div>
                                 ) : (
-                                  subject.topics.map((topic) => (
+                                  filteredTopics.map((topic) => (
                                     <SortableTopicWrapper key={topic.id} topic={topic}>
                                       {({ attributes: tAttr, listeners: tList, isDragging: tDragging }) => (
                                         <div
@@ -808,7 +978,8 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
                               </button>
                             </div>
                           </div>
-                        )}
+                          )
+                        })()}
                       </div>
                     )}
                   </SortableSubjectWrapper>
@@ -820,19 +991,63 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
       )}
 
       {/* Dialog Visualizar todos - lista de flashcards por assunto */}
-      <Dialog open={!!viewAllTopic} onOpenChange={(open) => !open && setViewAllTopic(null)}>
+      <Dialog open={!!viewAllTopic} onOpenChange={(open) => { if (!open) { setViewAllTopic(null); setCardSearchOpen(false); setCardSearchQuery("") } }}>
         <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
           <DialogHeader>
-            <DialogTitle className="text-base font-semibold text-foreground">
-              Flashcards — {viewAllTopic?.name}
-            </DialogTitle>
+            <div className="flex items-start justify-between gap-2 pr-6">
+              <DialogTitle className="text-base font-semibold text-foreground">
+                Flashcards — {viewAllTopic?.name}
+              </DialogTitle>
+              {/* 3) Busca por texto da pergunta — dentro do modal Visualizar todos (client-side, tempo real) */}
+              {!loadingCards && topicCards.length > 0 && (
+                <button
+                  onClick={() => {
+                    setCardSearchOpen((prev) => {
+                      const next = !prev
+                      if (!next) setCardSearchQuery("")
+                      else window.setTimeout(() => cardSearchInputRef.current?.focus(), 50)
+                      return next
+                    })
+                  }}
+                  aria-label={cardSearchOpen ? "Fechar busca de pergunta" : "Buscar por texto da pergunta"}
+                  title={cardSearchOpen ? "Fechar busca" : "Buscar por texto da pergunta"}
+                  className={`shrink-0 rounded-lg border p-2 transition-colors ${cardSearchOpen ? "border-primary/30 bg-primary/10 text-primary" : "border-border bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                >
+                  {cardSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+                </button>
+              )}
+            </div>
             <DialogDescription className="text-sm text-muted-foreground">
               {loadingCards
                 ? "Carregando..."
                 : topicCards.length === 0
                 ? "Nenhum flashcard cadastrado para este assunto."
+                : cardSearchQuery
+                ? `${filteredCards.length} de ${topicCards.length} ${topicCards.length === 1 ? "flashcard" : "flashcards"} — filtro: "${cardSearchQuery}"`
                 : `${topicCards.length} ${topicCards.length === 1 ? "flashcard" : "flashcards"} neste assunto`}
             </DialogDescription>
+            {cardSearchOpen && !loadingCards && topicCards.length > 0 && (
+              <div className="mt-1 flex items-center gap-2 animate-in fade-in duration-200">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    ref={cardSearchInputRef}
+                    value={cardSearchQuery}
+                    onChange={(e) => setCardSearchQuery(e.target.value)}
+                    placeholder="Buscar por texto da pergunta..."
+                    className="h-9 w-full rounded-lg border border-input bg-secondary/60 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                {cardSearchQuery && (
+                  <button
+                    onClick={() => setCardSearchQuery("")}
+                    className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary/80"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+            )}
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto -mx-4 px-4 py-2">
@@ -844,11 +1059,18 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
               <p className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-6 text-center text-sm text-muted-foreground">
                 Nenhum card aqui ainda.
               </p>
+            ) : filteredCards.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-6 text-center">
+                <Search className="mx-auto h-5 w-5 text-muted-foreground mb-2" />
+                <p className="text-sm font-medium text-foreground">Nenhuma pergunta encontrada</p>
+                <p className="mt-1 text-xs text-muted-foreground">Sem resultado para &quot;{cardSearchQuery}&quot;</p>
+                <button onClick={() => setCardSearchQuery("")} className="mt-3 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary/80">Limpar busca</button>
+              </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFlashcardDragEnd}>
-                <SortableContext items={topicCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                <SortableContext items={filteredCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
                   <div className="space-y-3">
-                    {topicCards.map((card) => {
+                    {filteredCards.map((card) => {
                       const isEditing = editingCardId === card.id
                       const isViewing = viewCardId === card.id
                       return (
