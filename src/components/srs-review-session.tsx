@@ -916,18 +916,42 @@ export function SRSReviewSession({
                   </div>
                 )}
                 {showFirstTimeUI ? (
-                  <div className="text-center space-y-4">
-                    <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shadow-[0_0_20px_rgba(0,212,255,0.2)]">
-                      <Clock className="h-10 w-10" />
-                    </div>
-                    <div>
-                      <span className="inline-block rounded-full bg-cyan-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-400">
-                        1ª REVISÃO REGISTRADA
+                  <div className="w-full space-y-4">
+                    {/* Gabarito sempre visível na 1ª revisão (FEEDBACK) — fix regressão: não depende de showChoiceUI/showThirdPlusAutoUI */}
+                    <div className="rounded-xl border border-primary/10 bg-primary/5 p-5 shadow-[0_0_15px_rgba(0,212,255,0.02)] text-left">
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-primary flex items-center gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Gabarito
                       </span>
-                      <h3 className="text-xl font-bold text-foreground mt-3">Agendado para 24 horas</h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Card salvo para o próximo ciclo de retenção.
+                      <p className="mt-3 text-base text-foreground font-medium leading-relaxed whitespace-pre-wrap break-words">
+                        {isClozeCurrent ? (
+                          <ClozeAnswerView text={currentCard.flashcard.front} />
+                        ) : (
+                          <SafeHtml html={currentCard.flashcard.back} />
+                        )}
                       </p>
+                      {isClozeCurrent && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Resposta esperada:{" "}
+                          <span className="font-semibold text-foreground">
+                            <SafeHtml html={currentCard.flashcard.back} />
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-center space-y-4">
+                      <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shadow-[0_0_20px_rgba(0,212,255,0.2)]">
+                        <Clock className="h-10 w-10" />
+                      </div>
+                      <div>
+                        <span className="inline-block rounded-full bg-cyan-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-400">
+                          1ª REVISÃO REGISTRADA
+                        </span>
+                        <h3 className="text-xl font-bold text-foreground mt-3">Agendado para 24 horas</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Card salvo para o próximo ciclo de retenção.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 ) : (
