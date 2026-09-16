@@ -155,7 +155,9 @@ export async function getRevisionCalendar(days: number = 30) {
 
   const calendar: Record<string, Array<{ front: string; deckName: string; subjectName?: string; topicName?: string }>> = {}
   progressCards.forEach((pc) => {
-    const dateStr = pc.nextReviewDate.toISOString().split("T")[0]
+    const d = pc.nextReviewDate
+    // Usa data local (America/Sao_Paulo no cliente) para alinhar com RevisionCalendarInline que monta chaves com getFullYear/getMonth/getDate local
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     if (!calendar[dateStr]) {
       calendar[dateStr] = []
     }
