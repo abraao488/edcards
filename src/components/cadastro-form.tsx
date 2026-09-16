@@ -13,8 +13,9 @@ import {
 import { createSubject, createTopic, getSubjectsWithTopics } from "@/lib/subjects/actions"
 import { createFlashcardWithTopic } from "@/lib/cadastrar/actions"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { hasVisibleText } from "@/lib/sanitize"
 import {
   Select,
   SelectContent,
@@ -124,8 +125,8 @@ export function CadastroForm() {
 
   async function handleCreateFlashcard() {
     const isValid = (() => {
-      if (!cardFront.trim() || !cardTopicId || savingCard) return false
-      if (cardType !== "CLOZE" && !cardBack.trim()) return false
+      if (!hasVisibleText(cardFront) || !cardTopicId || savingCard) return false
+      if (cardType !== "CLOZE" && !hasVisibleText(cardBack)) return false
       return true
     })()
 
@@ -410,18 +411,16 @@ export function CadastroForm() {
                 <Label htmlFor="card-front">
                   {cardType === "CLOZE" ? "Texto com Omissão" : "Pergunta"}
                 </Label>
-                <Textarea
+                <RichTextEditor
                   id="card-front"
                   value={cardFront}
-                  onChange={(e) => setCardFront(e.target.value)}
+                  onChange={setCardFront}
                   placeholder={
                     cardType === "CLOZE"
                       ? "Ex: A CF foi promulgada em {{c1::1988}}."
                       : "Digite a pergunta do flashcard..."
                   }
-                  rows={5}
                   disabled={savingCard}
-                  className="min-h-[140px] resize-y border-border bg-secondary/35 px-4 py-3 text-base focus-visible:border-primary/50 focus-visible:ring-primary/20"
                 />
               </div>
 
@@ -446,14 +445,12 @@ export function CadastroForm() {
               {cardType !== "CLOZE" && (
                 <div className="space-y-2">
                   <Label htmlFor="card-back">Resposta / Gabarito</Label>
-                  <Textarea
+                  <RichTextEditor
                     id="card-back"
                     value={cardBack}
-                    onChange={(e) => setCardBack(e.target.value)}
+                    onChange={setCardBack}
                     placeholder="Digite a resposta correta ou gabarito..."
-                    rows={5}
                     disabled={savingCard}
-                    className="min-h-[140px] resize-y border-border bg-secondary/35 px-4 py-3 text-base focus-visible:border-primary/50 focus-visible:ring-primary/20"
                   />
                 </div>
               )}
@@ -462,8 +459,8 @@ export function CadastroForm() {
                 type="button"
                 onClick={handleCreateFlashcard}
                 disabled={
-                  !cardFront.trim() ||
-                  (cardType !== "CLOZE" && !cardBack.trim()) ||
+                  !hasVisibleText(cardFront) ||
+                  (cardType !== "CLOZE" && !hasVisibleText(cardBack)) ||
                   !cardTopicId ||
                   savingCard
                 }

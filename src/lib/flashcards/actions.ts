@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
 import { getOrCreateActiveProfile } from "@/lib/profile/helpers"
+import { sanitizeHtml, stripHtml } from "@/lib/sanitize"
 
 
 export async function createDeck(formData: FormData) {
@@ -34,10 +35,17 @@ export async function createFlashcard(deckId: string, formData: FormData) {
   const topicId = (formData.get("topicId") as string) || undefined
   const cardType = (formData.get("cardType") as "BASIC" | "REVERSED" | "CLOZE") || "BASIC"
   
-  const front = (formData.get("front") as string).trim()
-  let back = (formData.get("back") as string).trim()
+  const rawFront = (formData.get("front") as string) || ""
+  const rawBack = (formData.get("back") as string) || ""
+  const sanitizedFront = sanitizeHtml(rawFront)
+  const sanitizedBack = sanitizeHtml(rawBack)
+  const plainFront = stripHtml(sanitizedFront)
+  const plainBack = stripHtml(sanitizedBack)
 
-  if (!front) {
+  const front = sanitizedFront.trim()
+  let back = sanitizedBack.trim()
+
+  if (!plainFront) {
     throw new Error("Pergunta é obrigatória.")
   }
 
@@ -46,7 +54,7 @@ export async function createFlashcard(deckId: string, formData: FormData) {
     let match
     const extractedAnswers: string[] = []
 
-    while ((match = clozeRegex.exec(front)) !== null) {
+    while ((match = clozeRegex.exec(plainFront)) !== null) {
       extractedAnswers.push(match[1])
     }
 
@@ -56,7 +64,7 @@ export async function createFlashcard(deckId: string, formData: FormData) {
 
     back = extractedAnswers.join(", ")
   } else {
-    if (!back) {
+    if (!plainBack) {
       throw new Error("Resposta é obrigatória.")
     }
   }
@@ -204,11 +212,15 @@ export async function updateFlashcardOrder(items: { id: string; order: number }[
 export async function updateFlashcard(id: string, front: string, back: string) {
   const user = await ensureUserExists()
 
-  const trimmedFront = front.trim()
-  const trimmedBack = back.trim()
+  const sanitizedFront = sanitizeHtml(front).trim()
+  const sanitizedBack = sanitizeHtml(back).trim()
+  const plainFront = stripHtml(sanitizedFront)
+  const plainBack = stripHtml(sanitizedBack)
 
-  if (!trimmedFront) throw new Error("Pergunta é obrigatória.")
-  if (!trimmedBack) throw new Error("Resposta é obrigatória.")
+  if (!plainFront) throw new Error("Pergunta é obrigatória.")
+  if (!plainBack) throw new Error("Resposta é obrigatória.")
+  const trimmedFront = sanitizedFront
+  const trimmedBack = sanitizedBack
 
   const existing = await prisma.flashcard.findFirst({
     where: { id, deck: { userId: user.id } },

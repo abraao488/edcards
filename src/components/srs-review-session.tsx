@@ -27,6 +27,24 @@ import {
   ClipboardList,
 } from "lucide-react"
 import { hasCloze, parseCloze } from "@/lib/cloze"
+import DOMPurify from "dompurify"
+
+function stripHtmlForReview(html: string): string {
+  return html.replace(/<[^>]*>/g, "")
+}
+
+function sanitizeForReview(html: string): string {
+  if (typeof window === "undefined") return html
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ["b", "strong", "i", "em", "u", "span", "br", "p", "ul", "ol", "li", "div"],
+    ALLOWED_ATTR: ["style"],
+  })
+}
+
+function SafeHtml({ html, className }: { html: string; className?: string }) {
+  const clean = sanitizeForReview(html)
+  return <span className={className} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }} dangerouslySetInnerHTML={{ __html: clean }} />
+}
 
 interface FlashcardData {
   id: string
@@ -53,11 +71,12 @@ interface FlashcardData {
 
 function isClozeCard(front: string, cardType?: string): boolean {
   if (cardType === "CLOZE") return true
-  return hasCloze(front)
+  return hasCloze(stripHtmlForReview(front))
 }
 
 function ClozeQuestionView({ text }: { text: string }) {
-  const parts = parseCloze(text)
+  const plain = stripHtmlForReview(text)
+  const parts = parseCloze(plain)
   return (
     <span>
       {parts.map((p, i) =>
@@ -77,7 +96,8 @@ function ClozeQuestionView({ text }: { text: string }) {
 }
 
 function ClozeAnswerView({ text }: { text: string }) {
-  const parts = parseCloze(text)
+  const plain = stripHtmlForReview(text)
+  const parts = parseCloze(plain)
   return (
     <span>
       {parts.map((p, i) =>
@@ -129,7 +149,7 @@ export function SRSReviewSession({
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null)
   const [queueRemaining, setQueueRemaining] = useState<number>(initialQueueCount ?? initialProgressCards.length)
 
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const hasSavedRef = useRef(false)
 
   useEffect(() => {
@@ -237,7 +257,7 @@ export function SRSReviewSession({
     }
   }
 
-  const handleFirstEnter = (e: React.FormEvent) => {
+  const handleFirstEnter = (e: React.SyntheticEvent) => {
     e.preventDefault()
     if (!inputValue.trim()) return
     setStep("COMPARING")
@@ -654,24 +674,40 @@ export function SRSReviewSession({
                     {isClozeCurrent ? (
                       <ClozeQuestionView text={currentCard.flashcard.front} />
                     ) : (
-                      currentCard.flashcard.front
+                      <SafeHtml html={currentCard.flashcard.front} className="leading-snug" />
                     )}
                   </h2>
                 </div>
 
                 <form onSubmit={handleFirstEnter} className="pt-4">
                   <div className="relative rounded-xl border border-border bg-secondary/35 p-1 transition-all duration-300 focus-within:border-primary/50 focus-within:shadow-[0_0_15px_rgba(0,229,255,0.08)]">
-                    <input
+                    <textarea
                       ref={inputRef}
-                      type="text"
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && e.shiftKey) {
+                          e.preventDefault()
+                          const el = e.currentTarget
+                          const start = el.selectionStart ?? inputValue.length
+                          const end = el.selectionEnd ?? inputValue.length
+                          const next = inputValue.slice(0, start) + "\n" + inputValue.slice(end)
+                          setInputValue(next)
+                          requestAnimationFrame(() => {
+                            el.selectionStart = el.selectionEnd = start + 1
+                          })
+                        } else if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault()
+                          handleFirstEnter(e)
+                        }
+                      }}
                       placeholder={
                         isClozeCurrent
                           ? "Digite a(s) palavra(s) omitida(s)..."
-                          : "Escreva sua resposta por extenso..."
+                          : "Escreva sua resposta por extenso... (Shift+Enter quebra linha)"
                       }
-                      className="w-full bg-transparent px-4 py-3 text-base text-foreground placeholder-muted-foreground outline-none border-none"
+                      rows={3}
+                      className="w-full min-h-[56px] max-h-[140px] resize-y bg-transparent px-4 py-3 text-base text-foreground placeholder-muted-foreground outline-none border-none"
                       disabled={loading}
                     />
                   </div>
@@ -682,7 +718,7 @@ export function SRSReviewSession({
                         : "Digite sua resposta por completo"}
                     </span>
                     <span className="flex items-center gap-1">
-                      Pressione <kbd className="bg-secondary px-1.5 py-0.5 rounded border border-border font-mono text-[10px] font-semibold">ENTER</kbd> para prosseguir
+                      <kbd className="bg-secondary px-1.5 py-0.5 rounded border border-border font-mono text-[10px] font-semibold">Shift+Enter</kbd> quebra linha · <kbd className="bg-secondary px-1.5 py-0.5 rounded border border-border font-mono text-[10px] font-semibold">Enter</kbd> envia
                     </span>
                   </div>
                 </form>
@@ -700,7 +736,7 @@ export function SRSReviewSession({
                     {isClozeCurrent ? (
                       <ClozeQuestionView text={currentCard.flashcard.front} />
                     ) : (
-                      currentCard.flashcard.front
+                      <SafeHtml html={currentCard.flashcard.front} />
                     )}
                   </h2>
                 </div>
@@ -711,7 +747,7 @@ export function SRSReviewSession({
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">
                       Sua Resposta
                     </span>
-                    <p className="mt-3 text-base text-foreground italic leading-relaxed">
+                    <p className="mt-3 text-base text-foreground italic leading-relaxed whitespace-pre-wrap break-words">
                       &ldquo;{inputValue}&rdquo;
                     </p>
                   </div>
@@ -722,18 +758,18 @@ export function SRSReviewSession({
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       Gabarito
                     </span>
-                    <p className="mt-3 text-base text-foreground font-medium leading-relaxed">
+                    <p className="mt-3 text-base text-foreground font-medium leading-relaxed whitespace-pre-wrap break-words">
                       {isClozeCurrent ? (
                         <ClozeAnswerView text={currentCard.flashcard.front} />
                       ) : (
-                        currentCard.flashcard.back
+                        <SafeHtml html={currentCard.flashcard.back} />
                       )}
                     </p>
                     {isClozeCurrent && (
                       <p className="mt-2 text-xs text-muted-foreground">
                         Resposta esperada:{" "}
                         <span className="font-semibold text-foreground">
-                          {currentCard.flashcard.back}
+                          <SafeHtml html={currentCard.flashcard.back} />
                         </span>
                       </p>
                     )}

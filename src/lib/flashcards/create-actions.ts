@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
 import { getOrCreateActiveProfile } from "@/lib/profile/helpers"
 import { createFlashcardWithTopic } from "@/lib/cadastrar/actions"
+import { sanitizeHtml, stripHtml } from "@/lib/sanitize"
 
 export async function createCardWithSubject(
   front: string,
@@ -19,10 +20,15 @@ export async function createCardWithSubject(
 
   const user = await ensureUserExists()
 
-  const processedFront = front.trim()
-  let processedBack = back.trim()
+  const sanitizedFront = sanitizeHtml(front)
+  const sanitizedBack = sanitizeHtml(back)
+  const plainFront = stripHtml(sanitizedFront)
+  const plainBack = stripHtml(sanitizedBack)
 
-  if (!processedFront) {
+  const processedFront = sanitizedFront.trim()
+  let processedBack = sanitizedBack.trim()
+
+  if (!plainFront) {
     throw new Error("Pergunta é obrigatória.")
   }
 
@@ -31,7 +37,7 @@ export async function createCardWithSubject(
     let match
     const extractedAnswers: string[] = []
 
-    while ((match = clozeRegex.exec(processedFront)) !== null) {
+    while ((match = clozeRegex.exec(plainFront)) !== null) {
       extractedAnswers.push(match[1])
     }
 
@@ -41,7 +47,7 @@ export async function createCardWithSubject(
 
     processedBack = extractedAnswers.join(", ")
   } else {
-    if (!processedBack) {
+    if (!plainBack) {
       throw new Error("Resposta é obrigatória.")
     }
   }
