@@ -277,36 +277,38 @@ export function SRSReviewSession({
       setLastDifficulty("MEDIUM")
       setStep("FEEDBACK")
       setLoading(false)
-
-      setTimeout(async () => {
-        if (currentIndex + 1 < cards.length) {
-          const nextCard = cards[currentIndex + 1]
-          setCards((prev) =>
-            prev.map((c, i) =>
-              i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
-            )
-          )
-          setCurrentIndex((prev) => prev + 1)
-          setStep("TYPING")
-          setInputValue("")
-          setLastDifficulty(null)
-          setAiFeedback(null)
-          setEvalMode(getInitialEvalMode(nextCard))
-        } else {
-          recordStudyTime()
-          setCards([])
-          setIsFocused(false)
-          setStep("START")
-          if (isQuizMode) {
-            router.push("/materias")
-          } else {
-            router.refresh()
-          }
-        }
-      }, 1500)
+      // Avanço manual: sem setTimeout/setInterval — usuário clica em "Próximo Card" no FEEDBACK (showFirstTimeUI)
     } catch (err) {
       console.error("Erro ao registrar 1ª revisão:", err)
       setLoading(false)
+    }
+  }
+
+  const handleNextAfterFirstReview = () => {
+    if (currentIndex + 1 < cards.length) {
+      const nextCard = cards[currentIndex + 1]
+      setCards((prev) =>
+        prev.map((c, i) =>
+          i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
+        )
+      )
+      setCurrentIndex((prev) => prev + 1)
+      setStep("TYPING")
+      setInputValue("")
+      setLastDifficulty(null)
+      setAiFeedback(null)
+      setAiError(null)
+      setEvalMode(getInitialEvalMode(nextCard))
+    } else {
+      recordStudyTime()
+      setCards([])
+      setIsFocused(false)
+      setStep("START")
+      if (isQuizMode) {
+        router.push("/materias")
+      } else {
+        router.refresh()
+      }
     }
   }
 
@@ -949,9 +951,16 @@ export function SRSReviewSession({
                         </span>
                         <h3 className="text-xl font-bold text-foreground mt-3">Agendado para 24 horas</h3>
                         <p className="text-sm text-muted-foreground mt-1">
-                          Card salvo para o próximo ciclo de retenção.
+                          Card salvo para o próximo ciclo de retenção. Confira o gabarito acima com calma.
                         </p>
                       </div>
+                      <button
+                        onClick={handleNextAfterFirstReview}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition-all duration-300 hover:bg-cyan-400 hover:shadow-[0_0_15px_rgba(0,229,255,0.4)] active:scale-[0.98]"
+                      >
+                        Próximo Card
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 ) : (
