@@ -116,6 +116,50 @@ function ClozeAnswerView({ text }: { text: string }) {
   )
 }
 
+function AnswerComparisonView({
+  inputValue,
+  frontText,
+  backHtml,
+  isCloze,
+}: {
+  inputValue: string
+  frontText: string
+  backHtml: string
+  isCloze: boolean
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 pt-1">
+      {/* Sua Resposta — esquerda */}
+      <div className="rounded-xl border border-dashed border-border bg-secondary/20 p-5">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">
+          Sua Resposta
+        </span>
+        <p className="mt-3 text-base text-foreground italic leading-relaxed whitespace-pre-wrap break-words">
+          &ldquo;{inputValue}&rdquo;
+        </p>
+      </div>
+      {/* Gabarito — direita, com ícone de check e SafeHtml/ClozeAnswerView */}
+      <div className="rounded-xl border border-primary/10 bg-primary/5 p-5 shadow-[0_0_15px_rgba(0,212,255,0.02)]">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-primary flex items-center gap-1">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Gabarito
+        </span>
+        <p className="mt-3 text-base text-foreground font-medium leading-relaxed whitespace-pre-wrap break-words">
+          {isCloze ? <ClozeAnswerView text={frontText} /> : <SafeHtml html={backHtml} />}
+        </p>
+        {isCloze && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Resposta esperada:{" "}
+            <span className="font-semibold text-foreground">
+              <SafeHtml html={backHtml} />
+            </span>
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 interface SRSReviewSessionProps {
   initialProgressCards: FlashcardData[]
   userId: string
@@ -743,40 +787,12 @@ export function SRSReviewSession({
                   </h2>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 pt-1">
-                  {/* Student Answer */}
-                  <div className="rounded-xl border border-dashed border-border bg-secondary/20 p-5">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">
-                      Sua Resposta
-                    </span>
-                    <p className="mt-3 text-base text-foreground italic leading-relaxed whitespace-pre-wrap break-words">
-                      &ldquo;{inputValue}&rdquo;
-                    </p>
-                  </div>
-
-                  {/* Real Answer */}
-                  <div className="rounded-xl border border-primary/10 bg-primary/5 p-5 shadow-[0_0_15px_rgba(0,212,255,0.02)]">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-primary flex items-center gap-1">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Gabarito
-                    </span>
-                    <p className="mt-3 text-base text-foreground font-medium leading-relaxed whitespace-pre-wrap break-words">
-                      {isClozeCurrent ? (
-                        <ClozeAnswerView text={currentCard.flashcard.front} />
-                      ) : (
-                        <SafeHtml html={currentCard.flashcard.back} />
-                      )}
-                    </p>
-                    {isClozeCurrent && (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Resposta esperada:{" "}
-                        <span className="font-semibold text-foreground">
-                          <SafeHtml html={currentCard.flashcard.back} />
-                        </span>
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <AnswerComparisonView
+                  inputValue={inputValue}
+                  frontText={currentCard.flashcard.front}
+                  backHtml={currentCard.flashcard.back}
+                  isCloze={isClozeCurrent}
+                />
 
                 {/* Modo consulta (isQuizMode): apenas revela gabarito (currentCard.flashcard.back) para autoavaliação visual — sem IA, sem difficulty, sem ProgressCard */}
                 {isQuizMode ? (
@@ -918,47 +934,22 @@ export function SRSReviewSession({
                   </div>
                 )}
                 {showFirstTimeUI ? (
-                  <div className="w-full space-y-4">
-                    {/* Gabarito sempre visível na 1ª revisão (FEEDBACK) — fix regressão: não depende de showChoiceUI/showThirdPlusAutoUI */}
-                    <div className="rounded-xl border border-primary/10 bg-primary/5 p-5 shadow-[0_0_15px_rgba(0,212,255,0.02)] text-left">
-                      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-primary flex items-center gap-1">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Gabarito
+                  <div className="w-full space-y-6 animate-in fade-in duration-300">
+                    <AnswerComparisonView
+                      inputValue={inputValue}
+                      frontText={currentCard.flashcard.front}
+                      backHtml={currentCard.flashcard.back}
+                      isCloze={isClozeCurrent}
+                    />
+                    <div className="pt-4 border-t border-border/40 text-center space-y-3">
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
+                        Compare sua resposta com o gabarito acima
                       </span>
-                      <p className="mt-3 text-base text-foreground font-medium leading-relaxed whitespace-pre-wrap break-words">
-                        {isClozeCurrent ? (
-                          <ClozeAnswerView text={currentCard.flashcard.front} />
-                        ) : (
-                          <SafeHtml html={currentCard.flashcard.back} />
-                        )}
-                      </p>
-                      {isClozeCurrent && (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Resposta esperada:{" "}
-                          <span className="font-semibold text-foreground">
-                            <SafeHtml html={currentCard.flashcard.back} />
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-center space-y-4">
-                      <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shadow-[0_0_20px_rgba(0,212,255,0.2)]">
-                        <Clock className="h-10 w-10" />
-                      </div>
-                      <div>
-                        <span className="inline-block rounded-full bg-cyan-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-400">
-                          1ª REVISÃO REGISTRADA
-                        </span>
-                        <h3 className="text-xl font-bold text-foreground mt-3">Agendado para 24 horas</h3>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Card salvo para o próximo ciclo de retenção. Confira o gabarito acima com calma.
-                        </p>
-                      </div>
                       <button
                         onClick={handleNextAfterFirstReview}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition-all duration-300 hover:bg-cyan-400 hover:shadow-[0_0_15px_rgba(0,229,255,0.4)] active:scale-[0.98]"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
                       >
-                        Próximo Card
+                        Próximo card
                         <ChevronRight className="h-4 w-4" />
                       </button>
                     </div>
