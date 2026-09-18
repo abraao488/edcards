@@ -7,11 +7,17 @@ import { PomodoroTimer } from "@/components/pomodoro-timer"
 import { saveStudySession } from "@/lib/study-sessions/actions"
 import {
   skipFlashcard,
-  submitSRSReview,
   submitFirstReview,
-  resetSRSProgressCycle,
+  classifyAndCreateCycle,
+  completeCycleReview,
+  renewReviewCycle,
 } from "@/lib/srs"
-import type { DifficultyStage } from "@/lib/srs-review-utils"
+import {
+  deriveReviewState,
+  type ActiveCycleInfo,
+  type DifficultyStage,
+  type ReviewState,
+} from "@/lib/srs-review-utils"
 import {
   Brain,
   CheckCircle2,
@@ -25,6 +31,7 @@ import {
   RefreshCw,
   Clock,
   ClipboardList,
+  PartyPopper,
 } from "lucide-react"
 import { hasCloze, parseCloze } from "@/lib/cloze"
 import DOMPurify from "dompurify"
@@ -53,6 +60,8 @@ interface FlashcardData {
   hasChosenEvalMode?: boolean
   isCycleEnded?: boolean
   difficultyStage?: DifficultyStage
+  activeCycle?: ActiveCycleInfo | null
+  hasCompletedCycle?: boolean
   flashcard: {
     id: string
     front: string
@@ -190,6 +199,9 @@ export function SRSReviewSession({
   const [lastDifficulty, setLastDifficulty] = useState<DifficultyStage | null>(null)
   const [aiFeedback, setAiFeedback] = useState<string | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [feedbackKind, setFeedbackKind] = useState<"FIRST" | "CLASSIFIED" | "CYCLE" | null>(null)
+  const [lastIsCycleCompleted, setLastIsCycleCompleted] = useState(false)
+  const [schedulePreview, setSchedulePreview] = useState<Date[]>([])
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null)
   const [queueRemaining, setQueueRemaining] = useState<number>(initialQueueCount ?? initialProgressCards.length)
 
@@ -202,13 +214,22 @@ export function SRSReviewSession({
 
   const currentCard = cards[currentIndex]
 
-  // Helper: decide evalMode inicial baseado no estado persistido do card
-  // CHOICE apenas quando firstReviewAt existe E hasChosenEvalMode ainda é false (exatamente 2ª resolução)
+  // Máquina de estados (fonte única de verdade — ver lib/srs-review-utils.ts).
+  // No Modo Consulta deriva para CONSULTA e nenhuma escrita acontece.
+  const state: ReviewState = deriveReviewState(
+    {
+      firstReviewAt: currentCard?.firstReviewAt ?? null,
+      activeCycle: currentCard?.activeCycle ?? null,
+      hasCompletedCycle: currentCard?.hasCompletedCycle ?? false,
+    },
+    isQuizMode
+  )
+
+  // A escolha do modo de avaliação (Autoavaliar / IA) só aparece na
+  // classificação (2ª resolução) e na renovação do ciclo.
   const getInitialEvalMode = (card: FlashcardData | undefined): "CHOICE" | "AI" => {
     if (!card) return "CHOICE"
-    if (!card.firstReviewAt) return "CHOICE" // 1ª resolução: step COMPARING mostra botão de 1ª revisão, evalMode irrelevante
-    if (card.hasChosenEvalMode) return "AI" // 3ª+ resolução: pula escolha, vai direto pro fluxo automático (IA)
-    return "CHOICE" // 2ª resolução: mostra escolha Autoavaliar / Analisar com IA
+    return "CHOICE"
   }
 
   // Sincroniza evalMode quando o card atual muda ou quando entra em TYPING/COMPARING
@@ -231,16 +252,19 @@ export function SRSReviewSession({
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (step === "COMPARING" && e.key === "Enter") {
         e.preventDefault()
-        // No Modo Consulta, ignora a lógica de 1ª revisão — sempre mostra opções de avaliação
-        if (!isQuizMode && !currentCard?.firstReviewAt) {
+        // No Modo Consulta (state = CONSULTA) nada é acionado pelo Enter:
+        // a navegação é manual via "Próximo card".
+        if (state === "FIRST_RESOLUTION") {
           handleConfirmFirstReview()
+        } else if (state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO") {
+          handleConfirmReview()
         }
       }
     }
     window.addEventListener("keydown", handleGlobalKeyDown)
     return () => window.removeEventListener("keydown", handleGlobalKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, inputValue, currentIndex, currentCard, isQuizMode])
+  }, [step, inputValue, currentIndex, currentCard, state])
 
   const decrementQueue = () => setQueueRemaining((prev) => Math.max(0, prev - 1))
 
@@ -289,59 +313,22 @@ export function SRSReviewSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStartTime])
 
-  const handleStart = () => {
-    setIsFocused(true)
-    setStep("TYPING")
+  const resetCardFeedback = () => {
     setInputValue("")
+    setLastDifficulty(null)
     setAiFeedback(null)
     setAiError(null)
-    setEvalMode(getInitialEvalMode(currentCard))
-    if (!sessionStartTime) {
-      setSessionStartTime(Date.now())
-    }
+    setFeedbackKind(null)
+    setLastIsCycleCompleted(false)
+    setSchedulePreview([])
   }
 
-  const handleFirstEnter = (e: React.SyntheticEvent) => {
-    e.preventDefault()
-    if (!inputValue.trim()) return
-    setStep("COMPARING")
-    setEvalMode(getInitialEvalMode(currentCard))
-  }
-
-  const handleConfirmFirstReview = async () => {
-    if (!currentCard || loading) return
-    setLoading(true)
-    setStep("EVALUATING")
-
-    try {
-      if (!isQuizMode) {
-        await submitFirstReview(currentCard.id)
-      }
-      if (!isQuizMode) decrementQueue()
-      setLastDifficulty("MEDIUM")
-      setStep("FEEDBACK")
-      setLoading(false)
-      // Avanço manual: sem setTimeout/setInterval — usuário clica em "Próximo Card" no FEEDBACK (showFirstTimeUI)
-    } catch (err) {
-      console.error("Erro ao registrar 1ª revisão:", err)
-      setLoading(false)
-    }
-  }
-
-  const handleNextAfterFirstReview = () => {
+  const goToNext = () => {
     if (currentIndex + 1 < cards.length) {
       const nextCard = cards[currentIndex + 1]
-      setCards((prev) =>
-        prev.map((c, i) =>
-          i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
-        )
-      )
       setCurrentIndex((prev) => prev + 1)
       setStep("TYPING")
-      setInputValue("")
-      setLastDifficulty(null)
-      setAiFeedback(null)
-      setAiError(null)
+      resetCardFeedback()
       setEvalMode(getInitialEvalMode(nextCard))
     } else {
       recordStudyTime()
@@ -356,27 +343,110 @@ export function SRSReviewSession({
     }
   }
 
-  // Modo consulta: apenas revela gabarito (currentCard.flashcard.back) para autoavaliação visual — sem IA, sem difficulty, sem ProgressCard
-  const handleNextQuizCard = () => {
-    if (!currentCard) return
-    if (currentIndex + 1 < cards.length) {
-      const nextCard = cards[currentIndex + 1]
-      setCurrentIndex((prev) => prev + 1)
-      setStep("TYPING")
-      setInputValue("")
-      setLastDifficulty(null)
-      setAiFeedback(null)
-      setAiError(null)
-      setEvalMode(getInitialEvalMode(nextCard))
-    } else {
-      recordStudyTime()
-      setCards([])
-      setIsFocused(false)
-      setStep("START")
-      router.push("/materias")
+  const handleStart = () => {
+    setIsFocused(true)
+    setStep("TYPING")
+    resetCardFeedback()
+    setEvalMode(getInitialEvalMode(currentCard))
+    if (!sessionStartTime) {
+      setSessionStartTime(Date.now())
     }
   }
 
+  const handleFirstEnter = (e: React.SyntheticEvent) => {
+    e.preventDefault()
+    if (!inputValue.trim()) return
+    setStep("COMPARING")
+    setEvalMode(getInitialEvalMode(currentCard))
+  }
+
+  // 1ª resolução: apenas agenda a revisão de 24h. Nenhuma classificação aqui.
+  const handleConfirmFirstReview = async () => {
+    if (!currentCard || loading) return
+    if (isQuizMode || state !== "FIRST_RESOLUTION") return
+    setLoading(true)
+    setStep("EVALUATING")
+
+    try {
+      await submitFirstReview(currentCard.id, userId)
+      decrementQueue()
+      setLastDifficulty("MEDIUM")
+      setFeedbackKind("FIRST")
+      setLastIsCycleCompleted(false)
+      setSchedulePreview([])
+      setAiFeedback(null)
+      setCards((prev) =>
+        prev.map((c, i) =>
+          i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
+        )
+      )
+      setStep("FEEDBACK")
+      setLoading(false)
+      // Avanço manual: o usuário clica em "Próximo card" no FEEDBACK
+    } catch (err) {
+      console.error("Erro ao registrar 1ª revisão:", err)
+      setLoading(false)
+    }
+  }
+
+  // Aplica localmente o resultado de uma classificação (ciclo criado / renovado)
+  const applyCycleCreated = (classification: DifficultyStage, feedback: string | null, scheduleDates: Date[], totalReviews: number, cycleId: string) => {
+    setLastDifficulty(classification)
+    setAiFeedback(feedback)
+    setSchedulePreview(scheduleDates)
+    setLastIsCycleCompleted(false)
+    setFeedbackKind("CLASSIFIED")
+    setCards((prev) =>
+      prev.map((c, i) =>
+        i === currentIndex
+          ? {
+              ...c,
+              hasChosenEvalMode: true,
+              difficultyStage: classification,
+              activeCycle: {
+                id: cycleId,
+                classification,
+                currentReview: 1,
+                totalReviews,
+                baseDate: new Date(),
+                isFinal: totalReviews <= 1,
+              },
+              hasCompletedCycle: false,
+            }
+          : c
+      )
+    )
+  }
+
+  // Aplica localmente o resultado de uma revisão DENTRO do ciclo ativo
+  const applyCycleReviewCompleted = (classification: DifficultyStage, nextReviewDate: Date, currentReview: number, totalReviews: number, isCycleCompleted: boolean) => {
+    setLastDifficulty(classification)
+    setAiFeedback(null)
+    setSchedulePreview([nextReviewDate])
+    setLastIsCycleCompleted(isCycleCompleted)
+    setFeedbackKind("CYCLE")
+    setCards((prev) =>
+      prev.map((c, i) =>
+        i === currentIndex
+          ? {
+              ...c,
+              activeCycle: isCycleCompleted
+                ? null
+                : {
+                    ...(c.activeCycle as ActiveCycleInfo),
+                    currentReview,
+                    isFinal: false,
+                  },
+              hasCompletedCycle: isCycleCompleted || Boolean(c.hasCompletedCycle),
+              currentCycleDay: currentReview,
+            }
+          : c
+      )
+    )
+  }
+
+  // Classificação (2ª resolução) OU renovação OU conclusão de revisão do ciclo.
+  // Nenhuma agulha toca o modo consulta: se chegar aqui, state nunca é CONSULTA.
   const handleConfirmReview = async (manualDifficulty?: DifficultyStage) => {
     if (!currentCard || loading) return
     if (isQuizMode) return // consulta: use handleNextQuizCard, não chama IA nem atualiza banco
@@ -385,48 +455,22 @@ export function SRSReviewSession({
     setStep("EVALUATING")
 
     try {
-      const result = await submitSRSReview(
-        currentCard.id,
-        inputValue,
-        userId,
-        manualDifficulty
-      )
-      const difficulty = result.difficulty
-      setAiFeedback(result.feedback ?? null)
+      if (state === "AGUARDANDO_AVALIACAO_24H") {
+        const r = await classifyAndCreateCycle(currentCard.id, inputValue, userId, manualDifficulty)
+        applyCycleCreated(r.classification, r.feedback, r.scheduleDates, r.totalReviews, r.cycleId)
+      } else if (state === "CICLO_FINALIZADO") {
+        const r = await renewReviewCycle(currentCard.id, inputValue, userId, manualDifficulty)
+        applyCycleCreated(r.classification, r.feedback, r.scheduleDates, r.totalReviews, r.cycleId)
+      } else if (state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO") {
+        const r = await completeCycleReview(currentCard.id, inputValue, userId)
+        applyCycleReviewCompleted(r.classification, r.nextReviewDate, r.currentReview, r.totalReviews, r.isCycleCompleted)
+      } else {
+        throw new Error("Ação de revisão indisponível para este card")
+      }
 
-      setLastDifficulty(difficulty)
       decrementQueue()
-      // Marca localmente que a escolha já foi feita para não reexibir CHOICE no mesmo card recarregado
-      setCards((prev) =>
-        prev.map((c, i) =>
-          i === currentIndex ? { ...c, hasChosenEvalMode: true } : c
-        )
-      )
       setStep("FEEDBACK")
       setLoading(false)
-
-      setTimeout(async () => {
-        if (currentIndex + 1 < cards.length) {
-          const nextCard = cards[currentIndex + 1]
-          setCurrentIndex((prev) => prev + 1)
-          setStep("TYPING")
-          setInputValue("")
-          setLastDifficulty(null)
-          setAiFeedback(null)
-          setAiError(null)
-          setEvalMode(getInitialEvalMode(nextCard))
-        } else {
-          recordStudyTime()
-          setCards([])
-          setIsFocused(false)
-          setStep("START")
-          if (isQuizMode) {
-            router.push("/materias")
-          } else {
-            router.refresh()
-          }
-        }
-      }, 1500)
     } catch (err) {
       console.error("Erro ao avaliar resposta:", err)
       setLoading(false)
@@ -437,49 +481,24 @@ export function SRSReviewSession({
           ? `Erro ao avaliar: ${err.message}`
           : "Erro desconhecido ao avaliar resposta."
       )
+      setFeedbackKind("CYCLE")
+      setLastIsCycleCompleted(false)
+      setSchedulePreview([])
       setStep("FEEDBACK")
-      setTimeout(async () => {
-        if (currentIndex + 1 < cards.length) {
-          const nextCard = cards[currentIndex + 1]
-          setCurrentIndex((prev) => prev + 1)
-          setStep("TYPING")
-          setInputValue("")
-          setLastDifficulty(null)
-          setAiFeedback(null)
-          setAiError(null)
-          setEvalMode(getInitialEvalMode(nextCard))
-        } else {
-          recordStudyTime()
-          setCards([])
-          setIsFocused(false)
-          setStep("START")
-          if (isQuizMode) {
-            router.push("/materias")
-          } else {
-            router.refresh()
-          }
-        }
-      }, 1500)
     }
   }
 
-  const handleResetCycle = async () => {
+  // Renovar o ciclo concluído dentro da própria sessão de revisão
+  const handleStartRenewal = () => {
     if (!currentCard || loading) return
-    setLoading(true)
-    try {
-      if (!isQuizMode) {
-        await resetSRSProgressCycle(currentCard.id, currentCard.difficultyStage)
-      }
-      setCards((prev) =>
-        prev.map((c, i) =>
-          i === currentIndex ? { ...c, isCycleEnded: false, currentCycleDay: 0 } : c
-        )
+    setCards((prev) =>
+      prev.map((c, i) =>
+        i === currentIndex ? { ...c, activeCycle: null, hasCompletedCycle: true } : c
       )
-    } catch (err) {
-      console.error("Erro ao reiniciar ciclo:", err)
-    } finally {
-      setLoading(false)
-    }
+    )
+    setStep("TYPING")
+    resetCardFeedback()
+    setEvalMode("CHOICE")
   }
 
   const handleSkip = async () => {
@@ -490,30 +509,20 @@ export function SRSReviewSession({
         await skipFlashcard(currentCard.id)
       }
       if (!isQuizMode) decrementQueue()
-
-      if (currentIndex + 1 < cards.length) {
-        const nextCard = cards[currentIndex + 1]
-        setCurrentIndex((prev) => prev + 1)
-        setStep("TYPING")
-        setInputValue("")
-        setLastDifficulty(null)
-        setAiFeedback(null)
-        setEvalMode(getInitialEvalMode(nextCard))
-      } else {
-        setCards([])
-        setIsFocused(false)
-        setStep("START")
-        if (isQuizMode) {
-          router.push("/materias")
-        } else {
-          router.refresh()
-        }
-      }
+      goToNext()
     } catch (err) {
       console.error("Erro ao pular card:", err)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Modo consulta: apenas revela gabarito (currentCard.flashcard.back) para
+  // autoavaliação visual — sem IA, sem difficulty, sem ProgressCard
+  const handleNextQuizCard = () => {
+    if (!currentCard) return
+    if (!isQuizMode) return
+    goToNext()
   }
 
   const showSidebar = !isFocused && !hideSidebar
@@ -614,21 +623,21 @@ export function SRSReviewSession({
   // 3. Focus mode review loop
   const subjectName = currentCard.flashcard.topic?.subject.name || "Sem Matéria"
   const topicName = currentCard.flashcard.topic?.name || "Sem Assunto"
-  const isFirstTimeCard = !currentCard.firstReviewAt
-  const hasChosenEvalModeFlag = Boolean(currentCard.hasChosenEvalMode)
-  // 2ª resolução: firstReviewAt existe pela primeira vez E ainda não escolheu modo -> mostra CHOICE
-  const isSecondReviewChoice = Boolean(currentCard.firstReviewAt) && !hasChosenEvalModeFlag
-  // 3ª+ resolução: já passou pela escolha uma vez -> pula direto pro fluxo automático
-  const isThirdPlusAuto = Boolean(currentCard.firstReviewAt) && hasChosenEvalModeFlag
-  const isEnded = Boolean(currentCard.isCycleEnded)
-  // No Modo Consulta, ignoramos completamente a lógica de "1ª revisão" na UI
-  const showFirstTimeUI = isFirstTimeCard && !isQuizMode
-  const showChoiceUI = isSecondReviewChoice && !isQuizMode && evalMode === "CHOICE"
-  const showAutoButtonsUI = isSecondReviewChoice && !isQuizMode && evalMode === "AUTO"
-  const showThirdPlusAutoUI = isThirdPlusAuto && !isQuizMode && evalMode === "AI"
   const isClozeCurrent = currentCard
     ? isClozeCard(currentCard.flashcard.front, currentCard.flashcard.cardType)
     : false
+
+  const activeCycle = currentCard?.activeCycle ?? null
+  const isFinalReviewState = state === "ULTIMA_REVISAO"
+  const isCycleState = state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO"
+  // Nº da revisão que acabou de ser concluída (o local já aponta para a próxima)
+  const numericCurrentReview = activeCycle ? activeCycle.currentReview - 1 : 0
+
+  // MODE SELECTOR: qual painel de ação render no COMPARING por estado
+  const isClassificationState = state === "AGUARDANDO_AVALIACAO_24H" || state === "CICLO_FINALIZADO"
+  const showChoiceUI = !isQuizMode && isClassificationState && evalMode === "CHOICE"
+  const showAutoButtonsUI = !isQuizMode && isClassificationState && evalMode === "AUTO"
+  const showDirectConfirmUI = !isQuizMode && isCycleState
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden flex flex-col justify-center items-center p-4 sm:p-6">
@@ -668,7 +677,7 @@ export function SRSReviewSession({
         </div>
 
         {/* The active study card */}
-        <div className={`relative min-h-[380px] flex flex-col justify-between rounded-2xl border ${isEnded ? "border-red-500/50 bg-red-950/20" : "border-border/80 bg-card/90"} backdrop-blur-md p-8 sm:p-10 shadow-[0_0_35px_rgba(0,212,255,0.06)] overflow-hidden transition-all duration-300`}>
+        <div className={`relative min-h-[380px] flex flex-col justify-between rounded-2xl border ${isFinalReviewState ? "border-red-500/50 bg-red-950/20" : "border-border/80 bg-card/90"} backdrop-blur-md p-8 sm:p-10 shadow-[0_0_35px_rgba(0,212,255,0.06)] overflow-hidden transition-all duration-300`}>
 
           {/* Progress bar on top of the card */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-secondary">
@@ -678,24 +687,29 @@ export function SRSReviewSession({
             />
           </div>
 
-          {/* Cycle ended banner */}
-          {isEnded && (
+          {/* Última revisão do ciclo (final, em vermelho) */}
+          {isFinalReviewState && (
             <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-center">
               <div className="flex items-center justify-center gap-2 text-red-400 font-bold text-sm">
                 <AlertTriangle className="h-4 w-4" />
-                Este flashcard concluiu o ciclo de revisão.
+                Última revisão do ciclo
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Todas as repetições agendadas foram concluídas.
+                Ao concluir, o ciclo será finalizado — depois você pode renová-lo em Matérias ou aqui.
               </p>
-              <button
-                onClick={handleResetCycle}
-                disabled={loading}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-500 text-white px-4 py-2 text-xs font-semibold transition-all shadow-md"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Reiniciar ciclo
-              </button>
+            </div>
+          )}
+
+          {/* Renovação do ciclo (card finalizado, reaberto via Matérias) */}
+          {state === "CICLO_FINALIZADO" && (
+            <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-center">
+              <div className="flex items-center justify-center gap-2 text-amber-400 font-bold text-sm">
+                <RefreshCw className="h-4 w-4" />
+                Renovação do ciclo de revisões
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Este card concluiu todas as revisões agendadas. Responda novamente para classificar e gerar um novo ciclo.
+              </p>
             </div>
           )}
 
@@ -710,9 +724,20 @@ export function SRSReviewSession({
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">
                       Pergunta
                     </span>
-                    {showFirstTimeUI && (
+                    {state === "FIRST_RESOLUTION" && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-cyan-400">
                         <Clock className="h-3 w-3" /> 1ª resolução (24h)
+                      </span>
+                    )}
+                    {isCycleState && activeCycle && (
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider ${isFinalReviewState ? "bg-red-500/10 border border-red-500/20 text-red-400" : "bg-cyan-500/10 border border-cyan-500/20 text-cyan-400"}`}>
+                        <Clock className="h-3 w-3" />
+                        Revisão {activeCycle.currentReview} de {activeCycle.totalReviews}
+                      </span>
+                    )}
+                    {state === "CICLO_FINALIZADO" && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                        <RefreshCw className="h-3 w-3" /> Renovação
                       </span>
                     )}
                   </div>
@@ -811,7 +836,9 @@ export function SRSReviewSession({
                 ) : showChoiceUI ? (
                   <div className="pt-4 border-t border-border/40 text-center space-y-3">
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
-                      Como avaliar sua resposta? (escolha única — 2ª revisão)
+                      {state === "CICLO_FINALIZADO"
+                        ? "Como avaliar sua resposta para o NOVO ciclo? (escolha única)"
+                        : "Como avaliar sua resposta? (escolha única — 2ª revisão, cria o ciclo)"}
                     </span>
                     <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
                       <button
@@ -838,32 +865,10 @@ export function SRSReviewSession({
                       </div>
                     )}
                   </div>
-                ) : showThirdPlusAutoUI ? (
-                  <div className="pt-4 border-t border-border/40 text-center space-y-3">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
-                      Avaliação automática (IA) — 3ª+ revisão
-                    </span>
-                    <button
-                      onClick={() => handleConfirmReview()}
-                      disabled={loading}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 px-6 py-3 text-sm font-semibold text-primary transition-all shadow-[0_0_15px_rgba(0,212,255,0.15)] disabled:opacity-50"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Analisar com IA
-                    </button>
-                    {aiError && (
-                      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-                        {aiError}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-
-                {/* SELF EVALUATION BUTTONS (EASY, MEDIUM, HARD) — apenas na 2ª revisão quando escolheu Autoavaliar */}
-                {showAutoButtonsUI && (
+                ) : showAutoButtonsUI ? (
                   <div className="pt-4 border-t border-border/40 text-center space-y-3 animate-in fade-in duration-200">
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
-                      Selecione a dificuldade
+                      Selecione a dificuldade — define o cronograma completo do ciclo
                     </span>
                     <div className="grid grid-cols-3 gap-3 max-w-lg mx-auto">
                       <button
@@ -892,7 +897,37 @@ export function SRSReviewSession({
                       </button>
                     </div>
                   </div>
-                )}
+                ) : showDirectConfirmUI ? (
+                  <div className="pt-4 border-t border-border/40 text-center space-y-3">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block">
+                      {isFinalReviewState
+                        ? "Conclua a última revisão para finalizar o ciclo"
+                        : "O ciclo já foi definido na classificação — basta confirmar esta revisão"}
+                    </span>
+                    <button
+                      onClick={() => handleConfirmReview()}
+                      disabled={loading}
+                      className={`inline-flex items-center gap-1.5 rounded-xl px-6 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)] ${isFinalReviewState ? "bg-rose-600 hover:bg-rose-500" : "bg-primary hover:bg-primary/90"}`}
+                    >
+                      {isFinalReviewState ? (
+                        <>
+                          Concluir Última Revisão
+                          <CheckCircle2 className="h-4 w-4" />
+                        </>
+                      ) : (
+                        <>
+                          {activeCycle ? `Concluir Revisão ${activeCycle.currentReview}/${activeCycle.totalReviews}` : "Concluir Revisão"}
+                          <ChevronRight className="h-4 w-4" />
+                        </>
+                      )}
+                    </button>
+                    {aiError && (
+                      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+                        {aiError}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -905,17 +940,19 @@ export function SRSReviewSession({
                 </div>
                 <div className="text-center">
                   <h3 className="text-lg font-bold tracking-tight text-foreground">
-                    {showFirstTimeUI
+                    {state === "FIRST_RESOLUTION"
                       ? "Agendando 1ª revisão..."
-                      : evalMode === "AUTO"
-                      ? "Registrando avaliação..."
+                      : state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO"
+                      ? "Registrando revisão do ciclo..."
+                      : state === "CICLO_FINALIZADO"
+                      ? "Gerando novo ciclo..."
                       : "Analisando resposta..."}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {showFirstTimeUI
+                    {state === "FIRST_RESOLUTION"
                       ? "Sua 1ª revisão foi agendada para daqui a 24 horas."
-                      : evalMode === "AUTO"
-                      ? "Atualizando curva de retenção do SRS."
+                      : state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO"
+                      ? "Avançando no cronograma da curta/média/longa retenção."
                       : "A IA do Edcards está realizando a comparação semântica."}
                   </p>
                 </div>
@@ -933,7 +970,8 @@ export function SRSReviewSession({
                     </p>
                   </div>
                 )}
-                {showFirstTimeUI ? (
+
+                {feedbackKind === "FIRST" && (
                   <div className="w-full space-y-6 animate-in fade-in duration-300">
                     <AnswerComparisonView
                       inputValue={inputValue}
@@ -946,7 +984,7 @@ export function SRSReviewSession({
                         Compare sua resposta com o gabarito acima
                       </span>
                       <button
-                        onClick={handleNextAfterFirstReview}
+                        onClick={goToNext}
                         className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
                       >
                         Próximo card
@@ -954,68 +992,157 @@ export function SRSReviewSession({
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <>
-                    {lastDifficulty === "EASY" && (
-                      <div className="text-center space-y-4">
-                        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
-                          <CheckCircle2 className="h-10 w-10" />
+                )}
+
+                {feedbackKind === "CLASSIFIED" && lastDifficulty && (
+                  <div className="w-full text-center space-y-4 animate-in fade-in duration-300">
+                    <div
+                      className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full border shadow-[0_0_20px_rgba(0,212,255,0.2)] ${
+                        lastDifficulty === "EASY"
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                          : lastDifficulty === "MEDIUM"
+                          ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                          : "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                      }`}
+                    >
+                      {lastDifficulty === "EASY" ? (
+                        <CheckCircle2 className="h-10 w-10" />
+                      ) : lastDifficulty === "MEDIUM" ? (
+                        <Sparkles className="h-10 w-10" />
+                      ) : (
+                        <RotateCcw className="h-10 w-10" />
+                      )}
+                    </div>
+                    <div>
+                      <span
+                        className={`inline-block rounded-full px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] ${
+                          lastDifficulty === "EASY"
+                            ? "bg-emerald-500/15 text-emerald-400"
+                            : lastDifficulty === "MEDIUM"
+                            ? "bg-amber-500/15 text-amber-400"
+                            : "bg-rose-500/15 text-rose-400"
+                        }`}
+                      >
+                        {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
+                      </span>
+                      <h3 className="text-xl font-bold text-foreground mt-3">
+                        {state === "CICLO_FINALIZADO" ? "Novo ciclo iniciado!" : "Ciclo de revisão iniciado!"}
+                      </h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {aiFeedback ||
+                          (lastDifficulty === "EASY"
+                            ? "Domínio claro. O cronograma completo foi gerado."
+                            : lastDifficulty === "MEDIUM"
+                            ? "Acerto parcial. O cronograma foi ajustado à sua retenção."
+                            : "Intervalo curto. Reforço garantido no início do ciclo.")}
+                      </p>
+                      {schedulePreview.length > 0 && (
+                        <div className="mt-4">
+                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block mb-2">
+                            Próximas revisões agendadas
+                          </span>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            {schedulePreview.slice(0, 6).map((d, i) => (
+                              <span
+                                key={i}
+                                className={`inline-flex items-center rounded-lg border px-2.5 py-1 font-mono text-xs font-bold ${
+                                  i === schedulePreview.length - 1
+                                    ? "border-red-500/30 bg-red-500/10 text-red-400"
+                                    : "border-primary/20 bg-primary/5 text-cyan-400"
+                                }`}
+                              >
+                                {i === schedulePreview.length - 1 && <span className="mr-1 text-red-500">◉</span>}
+                                {d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                        <div>
+                      )}
+                      <button
+                        onClick={goToNext}
+                        className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
+                      >
+                        Próximo card
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {feedbackKind === "CYCLE" && lastDifficulty && (
+                  <div className="w-full text-center space-y-4 animate-in fade-in duration-300">
+                    <div
+                      className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full border shadow-[0_0_20px_rgba(0,212,255,0.2)] ${
+                        lastIsCycleCompleted
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                          : "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                      }`}
+                    >
+                      {lastIsCycleCompleted ? (
+                        <PartyPopper className="h-10 w-10" />
+                      ) : (
+                        <CheckCircle2 className="h-10 w-10" />
+                      )}
+                    </div>
+                    <div>
+                      {lastIsCycleCompleted ? (
+                        <>
                           <span className="inline-block rounded-full bg-emerald-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-400">
-                            FÁCIL
+                            CICLO CONCLUÍDO
                           </span>
-                          <h3 className="text-xl font-bold text-foreground mt-3">Excelente trabalho!</h3>
+                          <h3 className="text-xl font-bold text-foreground mt-3">Excelente! Todas as revisões foram feitas.</h3>
                           <p className="text-sm text-muted-foreground mt-1">
-                            {aiFeedback ||
-                              (isQuizMode
-                                ? "Resposta registrada! Seu ciclo SRS permanece inalterado."
-                                : "Domínio claro. Próxima revisão agendada.")}
+                            Este card está dominado. Você pode renová-lo agora para gerar um novo ciclo.
                           </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {lastDifficulty === "MEDIUM" && (
-                      <div className="text-center space-y-4">
-                        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.2)]">
-                          <Sparkles className="h-10 w-10" />
-                        </div>
-                        <div>
-                          <span className="inline-block rounded-full bg-amber-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-amber-400">
-                            MÉDIO
+                          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+                            <button
+                              onClick={handleStartRenewal}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                              Renovar Ciclo
+                            </button>
+                            <button
+                              onClick={goToNext}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-secondary/60 hover:bg-secondary px-6 py-3 text-sm font-semibold text-foreground transition-all duration-200"
+                            >
+                              Próximo card
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span
+                            className={`inline-block rounded-full px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] ${
+                              lastDifficulty === "EASY"
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : lastDifficulty === "MEDIUM"
+                                ? "bg-amber-500/15 text-amber-400"
+                                : "bg-rose-500/15 text-rose-400"
+                            }`}
+                          >
+                            {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
                           </span>
-                          <h3 className="text-xl font-bold text-foreground mt-3">Bom progresso!</h3>
+                          <h3 className="text-xl font-bold text-foreground mt-3">
+                            Revisão {numericCurrentReview} concluída!
+                          </h3>
                           <p className="text-sm text-muted-foreground mt-1">
-                            {aiFeedback ||
-                              (isQuizMode
-                                ? "Resposta parcialmente correta. Continue praticando!"
-                                : "Acerto parcial. Vamos fixar isso no próximo ciclo.")}
+                            {schedulePreview.length > 0
+                              ? `Próxima revisão agendada para ${schedulePreview[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}.`
+                              : "Bom trabalho — ritmo mantido dentro do cronograma."}
                           </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {lastDifficulty === "HARD" && (
-                      <div className="text-center space-y-4">
-                        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30 shadow-[0_0_20px_rgba(244,63,94,0.2)]">
-                          <RotateCcw className="h-10 w-10" />
-                        </div>
-                        <div>
-                          <span className="inline-block rounded-full bg-rose-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-rose-400">
-                            DIFÍCIL
-                          </span>
-                          <h3 className="text-xl font-bold text-foreground mt-3">Atenção necessária</h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {aiFeedback ||
-                              (isQuizMode
-                                ? "Resposta incorreta. Revise o gabarito e tente novamente depois."
-                                : "Intervalo encurtado para revisão imediata.")}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </>
+                          <button
+                            onClick={goToNext}
+                            className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
+                          >
+                            Próximo card
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -1029,7 +1156,7 @@ export function SRSReviewSession({
               {isQuizMode ? "Edcards Modo Consulta (Não altera o banco)" : "Edcards Spaced Repetition Active"}
             </span>
 
-            {step === "COMPARING" && showFirstTimeUI && (
+            {step === "COMPARING" && state === "FIRST_RESOLUTION" && (
               <button
                 onClick={handleConfirmFirstReview}
                 disabled={loading}

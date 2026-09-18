@@ -168,7 +168,7 @@ export async function getFlashcardsByTopic(topicId: string) {
   })
   if (!topic) throw new Error("Assunto não encontrado")
 
-  return prisma.flashcard.findMany({
+  const flashcards = await prisma.flashcard.findMany({
     where: { topicId, deck: { userId: user.id } },
     orderBy: { order: "asc" },
     select: {
@@ -179,8 +179,26 @@ export async function getFlashcardsByTopic(topicId: string) {
       createdAt: true,
       topicId: true,
       order: true,
+      progress: {
+        select: {
+          id: true,
+          reviewCycles: {
+            select: {
+              id: true,
+              status: true,
+              classification: true,
+              currentReview: true,
+              totalReviews: true,
+              baseDate: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      },
     },
   })
+
+  return flashcards
 }
 
 export async function updateFlashcardOrder(items: { id: string; order: number }[]) {

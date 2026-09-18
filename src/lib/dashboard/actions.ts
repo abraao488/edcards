@@ -2,6 +2,21 @@
 
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import {
+  queueFilterWithoutCompletedOnly,
+  startOfDay,
+  addDays,
+} from "@/lib/srs-review-utils"
+
+export interface RevisionCalendarEntry {
+  front: string
+  deckName: string
+  subjectName?: string
+  topicName?: string
+  isFinal?: boolean
+}
+
+export type RevisionCalendar = Record<string, Array<RevisionCalendarEntry>>
 
 export async function getDashboardMetrics() {
   const user = await ensureUserExists()
@@ -18,12 +33,14 @@ export async function getDashboardMetrics() {
         where: {
           profile: { userId: user.id },
           nextReviewDate: { gte: today, lt: tomorrow },
+          ...queueFilterWithoutCompletedOnly(),
         },
       }),
       prisma.progressCard.count({
         where: {
           profile: { userId: user.id },
           nextReviewDate: { lt: today },
+          ...queueFilterWithoutCompletedOnly(),
         },
       }),
       calculateStreak(user.id),
@@ -189,51 +206,88 @@ async function calculateStreak(userId: string): Promise<number> {
   return streak
 }
 
-export async function getRevisionCalendar(days: number = 30) {
+export async function getRevisionCalendar(days: number = 30): Promise<RevisionCalendar> {
   const user = await ensureUserExists()
+  return getRevisionCalendarForUser(user.id, days)
+}
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const endDate = new Date(today)
-  endDate.setDate(endDate.getDate() + days)
+/**
+ * Calendário de revisões do usuário: exibe TODAS as revisões do cronograma
+ * completo do ciclo ativo (ScheduledReview), além da próxima revisão de cards
+ * que ainda não possuem ciclo (1ª/2ª resolução). A última revisão do ciclo
+ * chega destacada com isFinal = true.
+ */
+export async function getRevisionCalendarForUser(
+  userId: string,
+  days: number = 30
+): Promise<RevisionCalendar> {
+  const today = startOfDay(new Date())
+  const endDate = addDays(today, days)
 
-  const progressCards = await prisma.progressCard.findMany({
-    where: {
-      profile: { userId: user.id },
-      nextReviewDate: { gte: today, lte: endDate },
-    },
-    select: {
-      nextReviewDate: true,
-      flashcard: {
-        select: {
-          front: true,
-          deck: { select: { name: true } },
-          topic: {
-            select: {
-              name: true,
-              subject: { select: { name: true } },
-            },
+  const cardSelect = {
+    flashcard: {
+      select: {
+        front: true,
+        deck: { select: { name: true } },
+        topic: {
+          select: {
+            name: true,
+            subject: { select: { name: true } },
           },
         },
       },
     },
-  })
+  } as const
 
-  const calendar: Record<string, Array<{ front: string; deckName: string; subjectName?: string; topicName?: string }>> = {}
-  progressCards.forEach((pc) => {
-    const d = pc.nextReviewDate
-    // Usa data local (America/Sao_Paulo no cliente) para alinhar com RevisionCalendarInline que monta chaves com getFullYear/getMonth/getDate local
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    if (!calendar[dateStr]) {
-      calendar[dateStr] = []
-    }
-    calendar[dateStr].push({
+  const [progressCards, scheduledReviews] = await Promise.all([
+    prisma.progressCard.findMany({
+      where: {
+        profile: { userId },
+        nextReviewDate: { gte: today, lte: endDate },
+        // cards sem ciclo (1ª/2ª resolução pendente): usam nextReviewDate
+        reviewCycles: { none: {} },
+      },
+      select: { nextReviewDate: true, ...cardSelect },
+    }),
+    // cards com ciclo ativo: o calendário mostra o cronograma completo persistido
+    prisma.scheduledReview.findMany({
+      where: {
+        scheduleDate: { gte: today, lte: endDate },
+        cycle: {
+          status: "ACTIVE",
+          progressCard: { profile: { userId } },
+        },
+      },
+      select: { scheduleDate: true, isFinal: true, ...cardSelect },
+    }),
+  ])
+
+  const calendar: RevisionCalendar = {}
+
+  const push = (date: Date, entry: RevisionCalendarEntry) => {
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+    if (!calendar[dateStr]) calendar[dateStr] = []
+    calendar[dateStr].push(entry)
+  }
+
+  for (const pc of progressCards) {
+    push(pc.nextReviewDate, {
       front: pc.flashcard.front,
       deckName: pc.flashcard.deck.name,
       subjectName: pc.flashcard.topic?.subject?.name,
       topicName: pc.flashcard.topic?.name,
     })
-  })
+  }
+
+  for (const sr of scheduledReviews) {
+    push(sr.scheduleDate, {
+      front: sr.flashcard.front,
+      deckName: sr.flashcard.deck.name,
+      subjectName: sr.flashcard.topic?.subject?.name,
+      topicName: sr.flashcard.topic?.name,
+      isFinal: sr.isFinal,
+    })
+  }
 
   return calendar
 }

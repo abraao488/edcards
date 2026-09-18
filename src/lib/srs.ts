@@ -3,15 +3,35 @@
 import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
-import { ensureUserExists } from "@/lib/auth/sync"
 import {
-  calculateNextSRSReview,
-  CYCLES,
+  buildReviewSchedule,
+  classificationToRating,
   type DifficultyStage,
   type SRSReviewResult,
 } from "@/lib/srs-review-utils"
+import type { Prisma } from "@prisma/client"
 
 export type { DifficultyStage, SRSReviewResult }
+
+const REVALIDATE_PATHS = [
+  "/dashboard/flashcards",
+  "/flashcards",
+  "/dashboard",
+  "/materias",
+  "/gerenciador",
+]
+
+// Revalidate é inofensivo em testes fora de uma request; falhas aqui nunca podem
+// invalidar a operação de banco já concluída.
+function safeRevalidate(paths: string[]) {
+  for (const path of paths) {
+    try {
+      revalidatePath(path)
+    } catch {
+      // environment sem request context (ex.: testes) — ignora
+    }
+  }
+}
 
 // Jaccard similarity helpers for local fallback
 function normalizeText(text: string): string {
@@ -163,12 +183,27 @@ Retorne estritamente um JSON estruturado como:
 
 /**
  * Skips a card review, moving its nextReviewDate to tomorrow (+1 day)
- * without modifying its current cycle stage or difficulty.
+ * without modifying its cycle stage or classification. Se o card está dentro de
+ * um ciclo ativo, a revisão agendada pendente também é movida para amanhã.
  */
 export async function skipFlashcard(progressCardId: string): Promise<void> {
   const progressCard = await prisma.progressCard.findUnique({
     where: { id: progressCardId },
-    select: { flashcardId: true },
+    select: {
+      flashcardId: true,
+      reviewCycles: {
+        where: { status: "ACTIVE" },
+        select: {
+          scheduledReviews: {
+            where: { completedAt: null },
+            orderBy: { order: "asc" },
+            take: 1,
+            select: { id: true, scheduleDate: true },
+          },
+        },
+        take: 1,
+      },
+    },
   })
 
   if (!progressCard) {
@@ -178,7 +213,9 @@ export async function skipFlashcard(progressCardId: string): Promise<void> {
   const nextDay = new Date()
   nextDay.setDate(nextDay.getDate() + 1)
 
-  await prisma.$transaction([
+  const pending = progressCard.reviewCycles[0]?.scheduledReviews[0]
+
+  const ops: Prisma.PrismaPromise<unknown>[] = [
     prisma.progressCard.update({
       where: { id: progressCardId },
       data: { nextReviewDate: nextDay },
@@ -187,13 +224,20 @@ export async function skipFlashcard(progressCardId: string): Promise<void> {
       where: { id: progressCard.flashcardId },
       data: { nextReview: nextDay },
     }),
-  ])
+  ]
 
-  revalidatePath("/dashboard/flashcards")
-  revalidatePath("/flashcards")
-  revalidatePath("/dashboard")
-  revalidatePath("/materias")
-  revalidatePath("/gerenciador")
+  if (pending) {
+    ops.push(
+      prisma.scheduledReview.update({
+        where: { id: pending.id },
+        data: { scheduleDate: nextDay },
+      })
+    )
+  }
+
+  await prisma.$transaction(ops)
+
+  safeRevalidate(REVALIDATE_PATHS)
 }
 
 /**
@@ -201,19 +245,24 @@ export async function skipFlashcard(progressCardId: string): Promise<void> {
  * and scheduling nextReviewDate for 24h later without entering SRS cycle yet.
  * FIX streak: também cria FlashcardReview para alimentar calculateStreak.
  */
-export async function submitFirstReview(progressCardId: string): Promise<{
+export async function submitFirstReview(
+  progressCardId: string,
+  userId: string
+): Promise<{
   nextReviewDate: Date
 }> {
   const progressCard = await prisma.progressCard.findUnique({
     where: { id: progressCardId },
-    select: { flashcardId: true },
+    select: { flashcardId: true, firstReviewAt: true },
   })
 
   if (!progressCard) {
     throw new Error("ProgressCard não encontrado")
   }
 
-  const user = await ensureUserExists()
+  if (progressCard.firstReviewAt) {
+    throw new Error("Este card já passou pela primeira resolução")
+  }
 
   const now = new Date()
   const nextReviewDate = new Date(now.getTime() + 24 * 60 * 60 * 1000)
@@ -237,7 +286,7 @@ export async function submitFirstReview(progressCardId: string): Promise<{
     prisma.flashcardReview.create({
       data: {
         flashcardId: progressCard.flashcardId,
-        userId: user.id,
+        userId,
         date: now,
         quality: 3,
         difficultyLevel: "MEDIUM",
@@ -246,95 +295,158 @@ export async function submitFirstReview(progressCardId: string): Promise<{
     }),
   ])
 
-  revalidatePath("/dashboard/flashcards")
-  revalidatePath("/flashcards")
-  revalidatePath("/dashboard")
-  revalidatePath("/materias")
-  revalidatePath("/gerenciador")
+  safeRevalidate(REVALIDATE_PATHS)
 
   return { nextReviewDate }
 }
 
+export interface CycleCreationResult {
+  classification: DifficultyStage
+  feedback: string | null
+  cycleId: string
+  nextReviewDate: Date
+  scheduleDates: Date[]
+  totalReviews: number
+}
+
+export interface CycleReviewResult {
+  cycleId: string
+  classification: DifficultyStage
+  nextReviewDate: Date
+  currentReview: number // 1-based: próxima revisão a fazer
+  totalReviews: number
+  isFinal: boolean // acabou de completar a última revisão do ciclo
+  isCycleCompleted: boolean
+}
+
+interface CreateCycleParams {
+  progressCardId: string
+  profileId: string
+  classification: DifficultyStage
+  feedback: string | null
+  flashcardId: string
+  userId: string
+  studentAnswer: string
+}
+
 /**
- * Resets an SRS review cycle when isCycleEnded is reached, setting currentCycleDay = 0,
- * isCycleEnded = false, and scheduling next review according to interval[0].
+ * Cria o ciclo de revisão completo para um card a partir da classificação
+ * (única por ciclo). Persiste a avaliação (FlashcardReview com cycleId),
+ * o ReviewCycle ACTIVE e todas as ScheduledReview do cronograma.
+ * O cronograma é calculado a partir da data-base (agora) com intervalos
+ * NÃO cumulativos — nunca é recalculado durante o ciclo.
  */
-export async function resetSRSProgressCycle(
-  progressCardId: string,
-  difficulty?: DifficultyStage
-): Promise<{ nextReviewDate: Date }> {
-  const progressCard = await prisma.progressCard.findUnique({
-    where: { id: progressCardId },
-  })
-
-  if (!progressCard) {
-    throw new Error("ProgressCard não encontrado")
-  }
-
-  const stage = difficulty || (progressCard.difficultyStage as DifficultyStage) || "MEDIUM"
-  const cycle = CYCLES[stage] || CYCLES.MEDIUM
-  const interval = cycle[0]
-
-  const now = new Date()
-  const nextReviewDate = new Date()
-  nextReviewDate.setDate(nextReviewDate.getDate() + interval)
+async function createCycleInternal(params: CreateCycleParams): Promise<CycleCreationResult> {
+  const baseDate = new Date()
+  const schedule = buildReviewSchedule(params.classification, baseDate)
+  const cycleId = crypto.randomUUID()
+  const rating = classificationToRating(params.classification)
+  const nextReviewDate = schedule[0].scheduleDate
 
   await prisma.$transaction([
-    prisma.progressCard.update({
-      where: { id: progressCardId },
+    prisma.reviewCycle.create({
       data: {
-        currentCycleDay: 0,
+        id: cycleId,
+        flashcardId: params.flashcardId,
+        progressCardId: params.progressCardId,
+        profileId: params.profileId,
+        baseDate,
+        classification: params.classification,
+        status: "ACTIVE",
+        totalReviews: schedule.length,
+        currentReview: 1,
+        initialCycleEvaluationCompleted: true,
+      },
+    }),
+    prisma.scheduledReview.createMany({
+      data: schedule.map((s, index) => ({
+        cycleId,
+        flashcardId: params.flashcardId,
+        order: index + 1,
+        scheduleDate: s.scheduleDate,
+        isFinal: s.isFinal,
+      })),
+    }),
+    prisma.progressCard.update({
+      where: { id: params.progressCardId },
+      data: {
+        difficultyStage: params.classification,
+        currentCycleDay: 1,
         isCycleEnded: false,
+        hasChosenEvalMode: true,
+        lastRating: rating,
         nextReviewDate,
-        difficultyStage: stage,
       },
     }),
     prisma.flashcard.update({
-      where: { id: progressCard.flashcardId },
+      where: { id: params.flashcardId },
       data: {
-        currentCycleDay: 0,
+        difficultyLevel: params.classification,
+        currentCycleDay: 1,
         cycleCompleted: false,
         nextReview: nextReviewDate,
-        lastReview: now,
+        lastReview: baseDate,
+      },
+    }),
+    prisma.flashcardReview.create({
+      data: {
+        flashcardId: params.flashcardId,
+        userId: params.userId,
+        date: baseDate,
+        quality: rating,
+        difficultyLevel: params.classification,
+        userAnswer: params.studentAnswer?.slice(0, 2000) || null,
+        aiEvaluation: params.feedback?.slice(0, 2000) || null,
+        source: "SCHEDULED",
+        cycleId,
       },
     }),
   ])
 
-  revalidatePath("/dashboard/flashcards")
-  revalidatePath("/flashcards")
-  revalidatePath("/dashboard")
-  revalidatePath("/materias")
-  revalidatePath("/gerenciador")
+  safeRevalidate(REVALIDATE_PATHS)
 
-  return { nextReviewDate }
+  return {
+    classification: params.classification,
+    feedback: params.feedback,
+    cycleId,
+    nextReviewDate,
+    scheduleDates: schedule.map((s) => s.scheduleDate),
+    totalReviews: schedule.length,
+  }
 }
 
 /**
- * Submits a completed card review (subsequent reviews), evaluating the answer,
- * calculating the next step, and updating the database records.
+ * Classificação definitiva do card na 2ª resolução (24h após a 1ª).
+ * Cria o ciclo de revisão completo. Guarda: só é permitida quando NÃO existe
+ * ciclo ativo (a classificação acontece uma única vez por ciclo — nunca
+ * é recalculada durante o ciclo).
  */
-export async function submitSRSReview(
+export async function classifyAndCreateCycle(
   progressCardId: string,
   studentAnswer: string,
   userId: string,
   manualDifficulty?: DifficultyStage
-): Promise<{
-  difficulty: DifficultyStage
-  feedback: string | null
-  nextReviewDate: Date
-  nextCycleDay: number
-  isCycleEnded: boolean
-}> {
+): Promise<CycleCreationResult> {
   const progressCard = await prisma.progressCard.findUnique({
     where: { id: progressCardId },
-    include: { flashcard: true },
+    include: {
+      flashcard: { select: { id: true, front: true, back: true } },
+      reviewCycles: {
+        where: { status: "ACTIVE" },
+        select: { id: true },
+        take: 1,
+      },
+    },
   })
 
   if (!progressCard) {
     throw new Error("ProgressCard não encontrado")
   }
 
-  // 1. Evaluate with manual selection, AI, or fallback
+  if (progressCard.reviewCycles.length > 0) {
+    throw new Error("Este card já possui um ciclo de revisão ativo")
+  }
+
   const { difficulty, feedback } = await evaluateAnswerWithAI(
     progressCard.flashcard.front,
     progressCard.flashcard.back,
@@ -343,65 +455,210 @@ export async function submitSRSReview(
     manualDifficulty
   )
 
-  // 2. Calculate next review cycle
-  const srsResult = calculateNextSRSReview(progressCard.currentCycleDay, difficulty)
+  return createCycleInternal({
+    progressCardId,
+    profileId: progressCard.profileId,
+    classification: difficulty,
+    feedback,
+    flashcardId: progressCard.flashcard.id,
+    userId,
+    studentAnswer,
+  })
+}
 
-  // Map difficulty stage to rating number for schema: EASY=5, MEDIUM=3, HARD=1
-  const rating = difficulty === "EASY" ? 5 : difficulty === "MEDIUM" ? 3 : 1
-  const firstReviewAt = progressCard.firstReviewAt || new Date()
+/**
+ * Completar uma revisão DENTRO do ciclo ativo. Não reclassifica: o ciclo e o
+ * cronograma foram decididos na classificação e permanecem congelados. Marca a
+ * ScheduledReview atual como concluída e avança `currentReview`. Ao completar a
+ * última, finaliza o ciclo (`COMPLETED`) e libera a renovação.
+ */
+export async function completeCycleReview(
+  progressCardId: string,
+  studentAnswer?: string,
+  userId?: string
+): Promise<CycleReviewResult> {
+  const progressCard = await prisma.progressCard.findUnique({
+    where: { id: progressCardId },
+    include: {
+      flashcard: { select: { id: true } },
+      reviewCycles: {
+        where: { status: "ACTIVE" },
+        include: {
+          scheduledReviews: { orderBy: { order: "asc" } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  })
 
-  // 3. Update ProgressCard and Flashcard in database + cria FlashcardReview para streak
-  // Marca que a escolha Autoavaliar/IA já foi feita (apenas uma vez, na 2ª resolução)
-  const shouldMarkChoice = !progressCard.hasChosenEvalMode
-  await prisma.$transaction([
-    prisma.progressCard.update({
-      where: { id: progressCardId },
-      data: {
-        lastRating: rating,
-        totalReviews: { increment: 1 },
-        currentCycleDay: srsResult.nextCycleDay,
-        nextReviewDate: srsResult.nextReviewDate,
-        difficultyStage: difficulty,
-        isCycleEnded: srsResult.isCycleEnded,
-        firstReviewAt,
-        ...(shouldMarkChoice ? { hasChosenEvalMode: true } : {}),
-      },
-    }),
-    prisma.flashcard.update({
-      where: { id: progressCard.flashcardId },
-      data: {
-        nextReview: srsResult.nextReviewDate,
-        currentCycleDay: srsResult.nextCycleDay,
-        cycleCompleted: srsResult.isCycleEnded,
-        difficultyLevel:
-          difficulty === "EASY" ? "EASY" : difficulty === "MEDIUM" ? "MEDIUM" : "HARD",
-      },
-    }),
-    prisma.flashcardReview.create({
-      data: {
-        flashcardId: progressCard.flashcardId,
-        userId,
-        date: new Date(),
-        quality: rating,
-        difficultyLevel: difficulty,
-        userAnswer: studentAnswer?.slice(0, 2000) || null,
-        aiEvaluation: feedback?.slice(0, 2000) || null,
-        source: "SCHEDULED",
-      },
-    }),
-  ])
+  if (!progressCard) {
+    throw new Error("ProgressCard não encontrado")
+  }
 
-  revalidatePath("/dashboard/flashcards")
-  revalidatePath("/flashcards")
-  revalidatePath("/dashboard")
-  revalidatePath("/materias")
-  revalidatePath("/gerenciador")
+  const cycle = progressCard.reviewCycles[0]
+  if (!cycle) {
+    throw new Error("Nenhum ciclo de revisão ativo para este card")
+  }
+
+  const pending = cycle.scheduledReviews.find((s) => s.order === cycle.currentReview)
+  if (!pending) {
+    throw new Error("Revisão agendada não encontrada para este ciclo")
+  }
+
+  const isLast = cycle.currentReview >= cycle.totalReviews
+  const now = new Date()
+
+  const ops: Prisma.PrismaPromise<unknown>[] = [
+    prisma.scheduledReview.update({
+      where: { id: pending.id },
+      data: { completedAt: now },
+    }),
+  ]
+
+  let nextReviewDate: Date
+
+  if (isLast) {
+    nextReviewDate = pending.scheduleDate
+    ops.push(
+      prisma.reviewCycle.update({
+        where: { id: cycle.id },
+        data: { status: "COMPLETED" },
+      }),
+      prisma.progressCard.update({
+        where: { id: progressCardId },
+        data: {
+          totalReviews: { increment: 1 },
+          isCycleEnded: true,
+          nextReviewDate: pending.scheduleDate,
+        },
+      }),
+      prisma.flashcard.update({
+        where: { id: progressCard.flashcard.id },
+        data: {
+          cycleCompleted: true,
+          nextReview: pending.scheduleDate,
+          lastReview: now,
+          currentCycleDay: cycle.currentReview,
+        },
+      })
+    )
+  } else {
+    const nextScheduled = cycle.scheduledReviews.find(
+      (s) => s.order === cycle.currentReview + 1
+    )
+    if (!nextScheduled) {
+      throw new Error("Cronograma do ciclo inconsistente")
+    }
+    nextReviewDate = nextScheduled.scheduleDate
+    ops.push(
+      prisma.reviewCycle.update({
+        where: { id: cycle.id },
+        data: { currentReview: cycle.currentReview + 1 },
+      }),
+      prisma.progressCard.update({
+        where: { id: progressCardId },
+        data: {
+          totalReviews: { increment: 1 },
+          currentCycleDay: cycle.currentReview + 1,
+          isCycleEnded: false,
+          nextReviewDate,
+        },
+      }),
+      prisma.flashcard.update({
+        where: { id: progressCard.flashcard.id },
+        data: {
+          currentCycleDay: cycle.currentReview + 1,
+          cycleCompleted: false,
+          nextReview: nextReviewDate,
+          lastReview: now,
+        },
+      })
+    )
+  }
+
+  if (userId) {
+    ops.push(
+      prisma.flashcardReview.create({
+        data: {
+          flashcardId: progressCard.flashcard.id,
+          userId,
+          date: now,
+          quality: classificationToRating(cycle.classification),
+          difficultyLevel: cycle.classification,
+          userAnswer: studentAnswer?.slice(0, 2000) || null,
+          aiEvaluation: null,
+          source: "SCHEDULED",
+          cycleId: cycle.id,
+        },
+      })
+    )
+  }
+
+  await prisma.$transaction(ops)
+
+  safeRevalidate(REVALIDATE_PATHS)
 
   return {
-    difficulty,
-    feedback,
-    ...srsResult,
+    cycleId: cycle.id,
+    classification: cycle.classification,
+    nextReviewDate,
+    currentReview: isLast ? cycle.currentReview : cycle.currentReview + 1,
+    totalReviews: cycle.totalReviews,
+    isFinal: isLast,
+    isCycleCompleted: isLast,
   }
+}
+
+/**
+ * Renova o ciclo de um card que JÁ concluiu todas as revisões agendadas.
+ * Reavalia a resposta (nova classificação do próximo ciclo), preserva o ciclo
+ * anterior na história e cria um novo ReviewCycle ACTIVE com novo cronograma.
+ * Guarda: só permitido quando não existe ciclo ativo.
+ */
+export async function renewReviewCycle(
+  progressCardId: string,
+  studentAnswer: string,
+  userId: string,
+  manualDifficulty?: DifficultyStage
+): Promise<CycleCreationResult> {
+  const progressCard = await prisma.progressCard.findUnique({
+    where: { id: progressCardId },
+    include: {
+      flashcard: { select: { id: true, front: true, back: true } },
+      reviewCycles: {
+        where: { status: "ACTIVE" },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  })
+
+  if (!progressCard) {
+    throw new Error("ProgressCard não encontrado")
+  }
+
+  if (progressCard.reviewCycles.length > 0) {
+    throw new Error("Ciclo de revisão ainda ativo — não é possível renovar")
+  }
+
+  const { difficulty, feedback } = await evaluateAnswerWithAI(
+    progressCard.flashcard.front,
+    progressCard.flashcard.back,
+    studentAnswer,
+    userId,
+    manualDifficulty
+  )
+
+  return createCycleInternal({
+    progressCardId,
+    profileId: progressCard.profileId,
+    classification: difficulty,
+    feedback,
+    flashcardId: progressCard.flashcard.id,
+    userId,
+    studentAnswer,
+  })
 }
 
 export async function ensureProgressCardsForFlashcards(
@@ -450,32 +707,57 @@ export async function ensureProgressCardsForFlashcards(
           },
         },
       },
+      reviewCycles: {
+        select: {
+          id: true,
+          classification: true,
+          currentReview: true,
+          totalReviews: true,
+          baseDate: true,
+          status: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
     orderBy: { nextReviewDate: "asc" },
   })
 
-  return progressCards.map((pc) => ({
-    id: pc.id,
-    currentCycleDay: pc.currentCycleDay,
-    firstReviewAt: pc.firstReviewAt,
-    hasChosenEvalMode: (pc as unknown as { hasChosenEvalMode?: boolean }).hasChosenEvalMode ?? false,
-    isCycleEnded: pc.isCycleEnded,
-    difficultyStage: (pc.difficultyStage as DifficultyStage) || "MEDIUM",
-    flashcard: {
-      id: pc.flashcard.id,
-      front: pc.flashcard.front,
-      back: pc.flashcard.back,
-      cardType: (pc.flashcard as unknown as { cardType?: string }).cardType ?? "BASIC",
-      topic: pc.flashcard.topic
+  return progressCards.map((pc) => {
+    const activeCycle = pc.reviewCycles.find((c) => c.status === "ACTIVE") ?? null
+    return {
+      id: pc.id,
+      currentCycleDay: pc.currentCycleDay,
+      firstReviewAt: pc.firstReviewAt,
+      hasChosenEvalMode: (pc as unknown as { hasChosenEvalMode?: boolean }).hasChosenEvalMode ?? false,
+      isCycleEnded: pc.isCycleEnded,
+      difficultyStage: (pc.difficultyStage as DifficultyStage) || "MEDIUM",
+      activeCycle: activeCycle
         ? {
-            id: pc.flashcard.topic.id,
-            name: pc.flashcard.topic.name,
-            subject: {
-              id: pc.flashcard.topic.subject.id,
-              name: pc.flashcard.topic.subject.name,
-            },
+            id: activeCycle.id,
+            classification: activeCycle.classification as DifficultyStage,
+            currentReview: activeCycle.currentReview,
+            totalReviews: activeCycle.totalReviews,
+            baseDate: activeCycle.baseDate,
+            isFinal: activeCycle.currentReview >= activeCycle.totalReviews,
           }
         : null,
-    },
-  }))
+      hasCompletedCycle: pc.reviewCycles.some((c) => c.status === "COMPLETED"),
+      flashcard: {
+        id: pc.flashcard.id,
+        front: pc.flashcard.front,
+        back: pc.flashcard.back,
+        cardType: (pc.flashcard as unknown as { cardType?: string }).cardType ?? "BASIC",
+        topic: pc.flashcard.topic
+          ? {
+              id: pc.flashcard.topic.id,
+              name: pc.flashcard.topic.name,
+              subject: {
+                id: pc.flashcard.topic.subject.id,
+                name: pc.flashcard.topic.subject.name,
+              },
+            }
+          : null,
+      },
+    }
+  })
 }

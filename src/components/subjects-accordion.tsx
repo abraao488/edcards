@@ -21,6 +21,7 @@ import {
   EyeOff,
   GripVertical,
   Search,
+  RefreshCw,
 } from "lucide-react"
 import {
   createSubject,
@@ -208,6 +209,17 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
     createdAt: Date | string
     topicId: string | null
     order: number
+    progress?: {
+      id: string
+      reviewCycles: {
+        id: string
+        status: string
+        classification: string
+        currentReview: number
+        totalReviews: number
+        baseDate: Date | string
+      }[]
+    } | null
   }
   const [viewAllTopic, setViewAllTopic] = useState<{ id: string; name: string } | null>(null)
   const [topicCards, setTopicCards] = useState<TopicCard[]>([])
@@ -1158,6 +1170,19 @@ export function SubjectsAccordion({ subjects }: SubjectsAccordionProps) {
                                         <Pencil className="h-3.5 w-3.5" />
                                         Editar
                                       </button>
+                                      {card.progress &&
+                                        card.progress.reviewCycles.some(
+                                          (c) => c.status === "COMPLETED"
+                                        ) && (
+                                          <Link
+                                            href={`/flashcards?renewCardId=${card.progress.id}`}
+                                            className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-colors"
+                                            title="Iniciar um novo ciclo de revisões deste card"
+                                          >
+                                            <RefreshCw className="h-3.5 w-3.5" />
+                                            Renovar Ciclo
+                                          </Link>
+                                        )}
                                       <button
                                         onClick={() => setConfirmDeleteCard({ id: card.id, front: card.front })}
                                         className="inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors"

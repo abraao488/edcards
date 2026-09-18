@@ -16,6 +16,7 @@ interface CalendarEntry {
   deckName: string
   subjectName?: string
   topicName?: string
+  isFinal?: boolean
 }
 
 interface RevisionCalendarModalProps {
@@ -75,46 +76,34 @@ export function RevisionCalendarModal({
       count: number
       isToday: boolean
       isPast: boolean
+      hasFinal: boolean
     }> = []
 
-    for (let i = 0; i < startPad; i++) {
-      const d = new Date(year, month, -startPad + i + 1)
+    const buildDay = (d: Date, isPast: boolean) => {
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-      days.push({
+      const entries = calendar[dateStr] || []
+      return {
         date: dateStr,
         day: d.getDate(),
-        entries: calendar[dateStr] || [],
-        count: (calendar[dateStr] || []).length,
+        entries,
+        count: entries.length,
         isToday: dateStr === today,
-        isPast: true,
-      })
+        isPast,
+        hasFinal: entries.some((e) => e.isFinal),
+      }
+    }
+
+    for (let i = 0; i < startPad; i++) {
+      days.push(buildDay(new Date(year, month, -startPad + i + 1), true))
     }
 
     for (let i = 1; i <= lastDay.getDate(); i++) {
       const d = new Date(year, month, i)
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-      days.push({
-        date: dateStr,
-        day: i,
-        entries: calendar[dateStr] || [],
-        count: (calendar[dateStr] || []).length,
-        isToday: dateStr === today,
-        isPast: new Date(dateStr) < new Date(today),
-      })
+      days.push(buildDay(d, new Date(year, month, i) < new Date(today)))
     }
 
-    const remaining = 42 - days.length
-    for (let i = 1; i <= remaining; i++) {
-      const d = new Date(year, month + 1, i)
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-      days.push({
-        date: dateStr,
-        day: i,
-        entries: calendar[dateStr] || [],
-        count: (calendar[dateStr] || []).length,
-        isToday: dateStr === today,
-        isPast: false,
-      })
+    for (let i = 1; i <= 42 - days.length; i++) {
+      days.push(buildDay(new Date(year, month + 1, i), false))
     }
 
     return days
@@ -186,11 +175,17 @@ export function RevisionCalendarModal({
                   "bg-primary/10 ring-1 ring-primary/30",
                 !day.isToday &&
                   !day.isPast &&
+                  day.hasFinal &&
+                  "bg-red-500/10 ring-1 ring-red-500/40",
+                !day.isToday &&
+                  !day.isPast &&
                   day.count > 0 &&
+                  !day.hasFinal &&
                   "bg-secondary hover:bg-secondary/80",
                 !day.isToday &&
                   !day.isPast &&
                   day.count === 0 &&
+                  !day.hasFinal &&
                   "hover:bg-secondary/50"
               )}
             >
@@ -199,7 +194,11 @@ export function RevisionCalendarModal({
                 <span
                   className={cn(
                     "text-[10px] font-bold",
-                    day.isToday ? "text-primary" : "text-cyan-400"
+                    day.isToday
+                      ? "text-primary"
+                      : day.hasFinal
+                      ? "text-red-400"
+                      : "text-cyan-400"
                   )}
                 >
                   {day.count}
@@ -230,9 +229,13 @@ export function RevisionCalendarModal({
                 {selectedEntries.slice(0, 5).map((entry, i) => (
                   <li
                     key={i}
-                    className="truncate font-mono text-xs text-foreground"
+                    className={cn(
+                      "truncate font-mono text-xs",
+                      entry.isFinal ? "font-semibold text-red-400" : "text-foreground"
+                    )}
                   >
                     <span className="text-cyan-400">›</span>{" "}
+                    {entry.isFinal && <span className="mr-1 text-red-500">◉</span>}
                     {formatCardLabel(entry)}
                   </li>
                 ))}
@@ -254,6 +257,10 @@ export function RevisionCalendarModal({
           <div className="flex items-center gap-1">
             <div className="h-2 w-2 rounded-full bg-cyan-400" />
             Com revisões
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="h-2 w-2 rounded-full bg-red-500" />
+            Revisão final
           </div>
         </div>
       </DialogContent>

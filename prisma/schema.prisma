@@ -38,6 +38,11 @@ enum ReviewSource {
   AI_GENERATED
 }
 
+enum ReviewCycleStatus {
+  ACTIVE
+  COMPLETED
+}
+
 enum CardType {
   BASIC
   REVERSED
@@ -75,6 +80,7 @@ model Profile {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   progressCards   ProgressCard[]
+  reviewCycles    ReviewCycle[]
   studyLogs       StudyLog[]
 }
 
@@ -124,9 +130,11 @@ model Flashcard {
   order           Int              @default(0)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
-  progress        ProgressCard?
-  reviews         FlashcardReview[]
-  topic           Topic?           @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  progress          ProgressCard?
+  reviews           FlashcardReview[]
+  reviewCycles      ReviewCycle[]
+  scheduledReviews  ScheduledReview[]
+  topic             Topic?           @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
   @@index([deckId, nextReview])
   @@index([deckId, nextReview, lastReview])
@@ -171,6 +179,7 @@ model ProgressCard {
   isCycleEnded        Boolean   @default(false)
   firstReviewAt       DateTime?
   hasChosenEvalMode   Boolean   @default(false)
+  reviewCycles        ReviewCycle[]
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }
@@ -221,6 +230,8 @@ model FlashcardReview {
   aiEvaluation    String?
   source          ReviewSource   @default(SCHEDULED)
   timeSpentMs     Int?
+  cycleId         String?
+  cycle           ReviewCycle?   @relation(fields: [cycleId], references: [id], onDelete: SetNull)
 
   @@index([userId, date])
 }
@@ -307,4 +318,44 @@ model ScheduleItem {
   topicId      String?
   scheduledFor DateTime
   completed    Boolean       @default(false)
+}
+
+model ReviewCycle {
+  id                              String             @id @default(uuid())
+  flashcardId                     String
+  progressCardId                  String
+  profileId                       String
+  baseDate                        DateTime
+  classification                  DifficultyLevel
+  status                          ReviewCycleStatus  @default(ACTIVE)
+  totalReviews                    Int
+  currentReview                   Int                @default(1)
+  initialCycleEvaluationCompleted Boolean            @default(true)
+  createdAt                       DateTime           @default(now())
+
+  flashcard     Flashcard         @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+  progressCard  ProgressCard      @relation(fields: [progressCardId], references: [id], onDelete: Cascade)
+  profile       Profile           @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  scheduledReviews ScheduledReview[]
+  reviewLogs    FlashcardReview[]
+
+  @@index([profileId, status])
+  @@index([flashcardId, status])
+}
+
+model ScheduledReview {
+  id           String       @id @default(uuid())
+  cycleId      String
+  flashcardId  String
+  order        Int
+  scheduleDate DateTime
+  completedAt  DateTime?
+  isFinal      Boolean      @default(false)
+
+  cycle     ReviewCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  flashcard Flashcard   @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+
+  @@unique([cycleId, order])
+  @@index([cycleId, completedAt])
+  @@index([flashcardId, completedAt])
 }

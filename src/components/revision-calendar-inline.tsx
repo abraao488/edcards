@@ -11,6 +11,7 @@ interface CalendarEntry {
   deckName: string
   subjectName?: string
   topicName?: string
+  isFinal?: boolean
 }
 
 interface RevisionCalendarInlineProps {
@@ -46,18 +47,21 @@ export function RevisionCalendarInline({
       entries: CalendarEntry[]
       count: number
       isToday: boolean
+      hasFinal: boolean
     }> = []
     for (let i = 0; i < 28; i++) {
       const d = new Date()
       d.setDate(d.getDate() + i)
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+      const entries = calendar[dateStr] || []
       days.push({
         date: dateStr,
         day: d.getDate(),
         weekday: WEEKDAYS[d.getDay()],
-        entries: calendar[dateStr] || [],
-        count: (calendar[dateStr] || []).length,
+        entries,
+        count: entries.length,
         isToday: dateStr === today,
+        hasFinal: entries.some((e) => e.isFinal),
       })
     }
     return days
@@ -97,10 +101,13 @@ export function RevisionCalendarInline({
                 "flex h-12 flex-col items-center justify-center rounded-lg border transition-all",
                 day.isToday &&
                   "border-primary bg-primary/10 font-mono font-bold text-primary shadow-[0_0_14px_rgba(0,212,255,0.12)]",
-                !day.isToday &&
+                day.hasFinal && !day.isToday && "border-red-500/40 bg-red-500/5 shadow-[0_0_14px_rgba(244,63,94,0.12)]",
+                !day.hasFinal &&
+                  !day.isToday &&
                   day.count > 0 &&
                   "border-border bg-secondary text-foreground hover:bg-secondary/80",
-                !day.isToday &&
+                !day.hasFinal &&
+                  !day.isToday &&
                   day.count === 0 &&
                   "border-transparent text-muted-foreground"
               )}
@@ -112,7 +119,7 @@ export function RevisionCalendarInline({
                 <span
                   className={cn(
                     "font-mono text-[11px] font-bold",
-                    day.isToday ? "text-primary" : "text-cyan-400"
+                    day.isToday ? "text-primary" : day.hasFinal ? "text-red-400" : "text-cyan-400"
                   )}
                 >
                   {day.count}
@@ -123,7 +130,8 @@ export function RevisionCalendarInline({
             {hoveredDate === day.date && day.entries.length > 0 && (
               <div className="absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg">
                 {day.entries.slice(0, 3).map((entry, i) => (
-                  <div key={i} className="max-w-[220px] truncate font-mono">
+                  <div key={i} className={cn("max-w-[220px] truncate font-mono", entry.isFinal && "text-red-400 font-semibold")}>
+                    {entry.isFinal && <span className="mr-1 text-red-500">◉</span>}
                     {formatCardLabel(entry)}
                   </div>
                 ))}

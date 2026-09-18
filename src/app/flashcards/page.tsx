@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
 import { FlashcardsReviewView } from "@/components/flashcards-review-view"
 import { getReviewQueueCount } from "@/lib/flashcards/upcoming-actions"
+import { queueFilterWithoutCompletedOnly } from "@/lib/srs-review-utils"
 import {
   getSubjectsWithTopicCounts,
   getTopicFlashcardsForQuiz,
@@ -11,7 +12,7 @@ import {
 export const dynamic = "force-dynamic"
 
 interface FlashcardsPageProps {
-  searchParams: { topicId?: string }
+  searchParams: { topicId?: string; renewCardId?: string }
 }
 
 export default async function FlashcardsPage({
@@ -44,6 +45,52 @@ export default async function FlashcardsPage({
   }
 
   const topicId = searchParams.topicId
+  const renewCardId = searchParams.renewCardId
+
+  // Renovação de ciclo a partir de Matérias: abre o card (já finalizado) para
+  // uma nova classificação que cria o próximo ciclo
+  if (renewCardId) {
+    const related = await prisma.progressCard.findFirst({
+      where: {
+        id: renewCardId,
+        profile: { userId: dbUser.id },
+      },
+      include: {
+        flashcard: {
+          include: {
+            topic: {
+              include: { subject: true },
+            },
+          },
+        },
+        reviewCycles: {
+          select: {
+            id: true,
+            classification: true,
+            currentReview: true,
+            totalReviews: true,
+            baseDate: true,
+            status: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    })
+
+    if (related) {
+      const formattedCards = [formatQueueProgressCard(related)]
+      return (
+        <FlashcardsReviewView
+          initialProgressCards={formattedCards}
+          userId={dbUser.id}
+          email={dbUser.email}
+          pomodoroMin={settings?.pomodoroMin ?? 25}
+          initialQueueCount={queueCount}
+          subjects={subjects}
+        />
+      )
+    }
+  }
 
   // Revisão por assunto específico — sempre em modo real (isQuizMode=false, com SRS + IA)
   if (topicId) {
@@ -71,8 +118,11 @@ export default async function FlashcardsPage({
       id: fc.id,
       currentCycleDay: fc.currentCycleDay,
       firstReviewAt: null,
+      hasChosenEvalMode: false,
       isCycleEnded: false,
       difficultyStage: "MEDIUM" as const,
+      activeCycle: null,
+      hasCompletedCycle: false,
       flashcard: {
         id: fc.id,
         front: fc.front,
@@ -147,10 +197,12 @@ async function loadQueueCards(dbUser: {
   }
 
   // Fetch only ProgressCard records where nextReviewDate <= current time
+  // (excluindo cards cujo ciclo já foi finalizado — eles só voltam na renovação)
   const progressCards = await prisma.progressCard.findMany({
     where: {
       profileId: activeProfile.id,
       nextReviewDate: { lte: new Date() },
+      ...queueFilterWithoutCompletedOnly(),
     },
     include: {
       flashcard: {
@@ -162,18 +214,70 @@ async function loadQueueCards(dbUser: {
           },
         },
       },
+      reviewCycles: {
+        select: {
+          id: true,
+          classification: true,
+          currentReview: true,
+          totalReviews: true,
+          baseDate: true,
+          status: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
     orderBy: { nextReviewDate: "asc" },
   })
 
   // Format progressCards to client components expected types
-  return progressCards.map((pc) => ({
+  return progressCards.map(formatQueueProgressCard)
+}
+
+function formatQueueProgressCard(pc: {
+  id: string
+  currentCycleDay: number
+  firstReviewAt: Date | null
+  isCycleEnded: boolean
+  difficultyStage: string | null
+  reviewCycles: {
+    id: string
+    classification: string
+    currentReview: number
+    totalReviews: number
+    baseDate: Date
+    status: string
+  }[]
+  flashcard: {
+    id: string
+    front: string
+    back: string
+    cardType?: string
+    topic: {
+      id: string
+      name: string
+      subject: { id: string; name: string }
+    } | null
+  }
+}) {
+  const activeCycle = pc.reviewCycles.find((c) => c.status === "ACTIVE") ?? null
+  return {
     id: pc.id,
     currentCycleDay: pc.currentCycleDay,
     firstReviewAt: pc.firstReviewAt,
     hasChosenEvalMode: (pc as unknown as { hasChosenEvalMode?: boolean }).hasChosenEvalMode ?? false,
     isCycleEnded: pc.isCycleEnded,
     difficultyStage: (pc.difficultyStage as "EASY" | "MEDIUM" | "HARD") || "MEDIUM",
+    activeCycle: activeCycle
+      ? {
+          id: activeCycle.id,
+          classification: activeCycle.classification as "EASY" | "MEDIUM" | "HARD",
+          currentReview: activeCycle.currentReview,
+          totalReviews: activeCycle.totalReviews,
+          baseDate: activeCycle.baseDate,
+          isFinal: activeCycle.currentReview >= activeCycle.totalReviews,
+        }
+      : null,
+    hasCompletedCycle: pc.reviewCycles.some((c) => c.status === "COMPLETED"),
     flashcard: {
       id: pc.flashcard.id,
       front: pc.flashcard.front,
@@ -190,5 +294,5 @@ async function loadQueueCards(dbUser: {
           }
         : null,
     },
-  }))
+  }
 }

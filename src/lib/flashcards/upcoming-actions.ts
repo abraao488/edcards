@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { queueFilterWithoutCompletedOnly } from "@/lib/srs-review-utils"
 
 async function getActiveProfileId(): Promise<string | null> {
   const user = await ensureUserExists()
@@ -21,7 +22,10 @@ export async function getUpcomingFlashcards() {
   if (!profileId) return []
 
   const upcomingCards = await prisma.progressCard.findMany({
-    where: { profileId },
+    where: {
+      profileId,
+      ...queueFilterWithoutCompletedOnly(),
+    },
     orderBy: { nextReviewDate: "asc" },
     take: 3,
     include: {
@@ -51,6 +55,7 @@ export async function getReviewQueueCount(): Promise<number> {
     where: {
       profileId,
       nextReviewDate: { lte: new Date() },
+      ...queueFilterWithoutCompletedOnly(),
     },
   })
 }
