@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic"
 
 export default async function DashboardPage() {
   const metrics = await getDashboardMetrics()
-  const calendar = await getRevisionCalendar(30)
+  const calendar = await getRevisionCalendar()
 
   const today = new Date().toISOString().split("T")[0]
   const todayCount = (calendar[today] || []).length

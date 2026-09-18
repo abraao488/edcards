@@ -206,23 +206,29 @@ async function calculateStreak(userId: string): Promise<number> {
   return streak
 }
 
-export async function getRevisionCalendar(days: number = 30): Promise<RevisionCalendar> {
+export async function getRevisionCalendar(days?: number): Promise<RevisionCalendar> {
   const user = await ensureUserExists()
   return getRevisionCalendarForUser(user.id, days)
 }
 
 /**
- * Calendário de revisões do usuário: exibe TODAS as revisões do cronograma
- * completo do ciclo ativo (ScheduledReview), além da próxima revisão de cards
- * que ainda não possuem ciclo (1ª/2ª resolução). A última revisão do ciclo
- * chega destacada com isFinal = true.
+ * Calendário de revisões do usuário: exibe TODAS as revisões futuras do
+ * cronograma completo do ciclo ativo (ScheduledReview), além da próxima
+ * revisão de cards que ainda não possuem ciclo (1ª/2ª resolução). A última
+ * revisão do ciclo chega destacada com isFinal = true.
+ *
+ * A busca considera todas as datas a partir de hoje (sem teto), para que o
+ * calendário seja capaz de marcar qualquer dia de qualquer mês futuro que o
+ * usuário navegar. O parâmetro `days`, quando informado, apenas limita o
+ * horizonte de busca (usado por testes); `lte: undefined` é ignorado pelo
+ * Prisma, então por padrão são buscadas todas as revisões futuras.
  */
 export async function getRevisionCalendarForUser(
   userId: string,
-  days: number = 30
+  days?: number
 ): Promise<RevisionCalendar> {
   const today = startOfDay(new Date())
-  const endDate = addDays(today, days)
+  const endDate = days ? addDays(today, days) : undefined
 
   const cardSelect = {
     flashcard: {
