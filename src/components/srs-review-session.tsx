@@ -995,152 +995,168 @@ export function SRSReviewSession({
                 )}
 
                 {feedbackKind === "CLASSIFIED" && lastDifficulty && (
-                  <div className="w-full text-center space-y-4 animate-in fade-in duration-300">
-                    <div
-                      className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full border shadow-[0_0_20px_rgba(0,212,255,0.2)] ${
-                        lastDifficulty === "EASY"
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                          : lastDifficulty === "MEDIUM"
-                          ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                          : "bg-rose-500/10 text-rose-400 border-rose-500/30"
-                      }`}
-                    >
-                      {lastDifficulty === "EASY" ? (
-                        <CheckCircle2 className="h-10 w-10" />
-                      ) : lastDifficulty === "MEDIUM" ? (
-                        <Sparkles className="h-10 w-10" />
-                      ) : (
-                        <RotateCcw className="h-10 w-10" />
-                      )}
-                    </div>
-                    <div>
-                      <span
-                        className={`inline-block rounded-full px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] ${
+                  <div className="w-full space-y-6 animate-in fade-in duration-300">
+                    <AnswerComparisonView
+                      inputValue={inputValue}
+                      frontText={currentCard.flashcard.front}
+                      backHtml={currentCard.flashcard.back}
+                      isCloze={isClozeCurrent}
+                    />
+                    <div className="text-center space-y-4">
+                      <div
+                        className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full border shadow-[0_0_20px_rgba(0,212,255,0.2)] ${
                           lastDifficulty === "EASY"
-                            ? "bg-emerald-500/15 text-emerald-400"
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
                             : lastDifficulty === "MEDIUM"
-                            ? "bg-amber-500/15 text-amber-400"
-                            : "bg-rose-500/15 text-rose-400"
+                            ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                            : "bg-rose-500/10 text-rose-400 border-rose-500/30"
                         }`}
                       >
-                        {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
-                      </span>
-                      <h3 className="text-xl font-bold text-foreground mt-3">
-                        {state === "CICLO_FINALIZADO" ? "Novo ciclo iniciado!" : "Ciclo de revisão iniciado!"}
-                      </h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {aiFeedback ||
-                          (lastDifficulty === "EASY"
-                            ? "Domínio claro. O cronograma completo foi gerado."
-                            : lastDifficulty === "MEDIUM"
-                            ? "Acerto parcial. O cronograma foi ajustado à sua retenção."
-                            : "Intervalo curto. Reforço garantido no início do ciclo.")}
-                      </p>
-                      {schedulePreview.length > 0 && (
-                        <div className="mt-4">
-                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block mb-2">
-                            Próximas revisões agendadas
-                          </span>
-                          <div className="flex flex-wrap items-center justify-center gap-2">
-                            {schedulePreview.slice(0, 6).map((d, i) => (
-                              <span
-                                key={i}
-                                className={`inline-flex items-center rounded-lg border px-2.5 py-1 font-mono text-xs font-bold ${
-                                  i === schedulePreview.length - 1
-                                    ? "border-red-500/30 bg-red-500/10 text-red-400"
-                                    : "border-primary/20 bg-primary/5 text-cyan-400"
-                                }`}
-                              >
-                                {i === schedulePreview.length - 1 && <span className="mr-1 text-red-500">◉</span>}
-                                {d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
-                              </span>
-                            ))}
+                        {lastDifficulty === "EASY" ? (
+                          <CheckCircle2 className="h-10 w-10" />
+                        ) : lastDifficulty === "MEDIUM" ? (
+                          <Sparkles className="h-10 w-10" />
+                        ) : (
+                          <RotateCcw className="h-10 w-10" />
+                        )}
+                      </div>
+                      <div>
+                        <span
+                          className={`inline-block rounded-full px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] ${
+                            lastDifficulty === "EASY"
+                              ? "bg-emerald-500/15 text-emerald-400"
+                              : lastDifficulty === "MEDIUM"
+                              ? "bg-amber-500/15 text-amber-400"
+                              : "bg-rose-500/15 text-rose-400"
+                          }`}
+                        >
+                          {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
+                        </span>
+                        <h3 className="text-xl font-bold text-foreground mt-3">
+                          {state === "CICLO_FINALIZADO" ? "Novo ciclo iniciado!" : "Ciclo de revisão iniciado!"}
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {aiFeedback ||
+                            (lastDifficulty === "EASY"
+                              ? "Domínio claro. O cronograma completo foi gerado."
+                              : lastDifficulty === "MEDIUM"
+                              ? "Acerto parcial. O cronograma foi ajustado à sua retenção."
+                              : "Intervalo curto. Reforço garantido no início do ciclo.")}
+                        </p>
+                        {schedulePreview.length > 0 && (
+                          <div className="mt-4">
+                            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground block mb-2">
+                              Próximas revisões agendadas
+                            </span>
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                              {schedulePreview.slice(0, 6).map((d, i) => (
+                                <span
+                                  key={i}
+                                  className={`inline-flex items-center rounded-lg border px-2.5 py-1 font-mono text-xs font-bold ${
+                                    i === schedulePreview.length - 1
+                                      ? "border-red-500/30 bg-red-500/10 text-red-400"
+                                      : "border-primary/20 bg-primary/5 text-cyan-400"
+                                  }`}
+                                >
+                                  {i === schedulePreview.length - 1 && <span className="mr-1 text-red-500">◉</span>}
+                                  {d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                                </span>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                      <button
-                        onClick={goToNext}
-                        className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
-                      >
-                        Próximo card
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
+                        )}
+                        <button
+                          onClick={goToNext}
+                          className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
+                        >
+                          Próximo card
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {feedbackKind === "CYCLE" && lastDifficulty && (
-                  <div className="w-full text-center space-y-4 animate-in fade-in duration-300">
-                    <div
-                      className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full border shadow-[0_0_20px_rgba(0,212,255,0.2)] ${
-                        lastIsCycleCompleted
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                          : "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
-                      }`}
-                    >
-                      {lastIsCycleCompleted ? (
-                        <PartyPopper className="h-10 w-10" />
-                      ) : (
-                        <CheckCircle2 className="h-10 w-10" />
-                      )}
-                    </div>
-                    <div>
-                      {lastIsCycleCompleted ? (
-                        <>
-                          <span className="inline-block rounded-full bg-emerald-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-400">
-                            CICLO CONCLUÍDO
-                          </span>
-                          <h3 className="text-xl font-bold text-foreground mt-3">Excelente! Todas as revisões foram feitas.</h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Este card está dominado. Você pode renová-lo agora para gerar um novo ciclo.
-                          </p>
-                          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
-                            <button
-                              onClick={handleStartRenewal}
-                              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
+                  <div className="w-full space-y-6 animate-in fade-in duration-300">
+                    <AnswerComparisonView
+                      inputValue={inputValue}
+                      frontText={currentCard.flashcard.front}
+                      backHtml={currentCard.flashcard.back}
+                      isCloze={isClozeCurrent}
+                    />
+                    <div className="text-center space-y-4">
+                      <div
+                        className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full border shadow-[0_0_20px_rgba(0,212,255,0.2)] ${
+                          lastIsCycleCompleted
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                            : "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                        }`}
+                      >
+                        {lastIsCycleCompleted ? (
+                          <PartyPopper className="h-10 w-10" />
+                        ) : (
+                          <CheckCircle2 className="h-10 w-10" />
+                        )}
+                      </div>
+                      <div>
+                        {lastIsCycleCompleted ? (
+                          <>
+                            <span className="inline-block rounded-full bg-emerald-500/15 px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-400">
+                              CICLO CONCLUÍDO
+                            </span>
+                            <h3 className="text-xl font-bold text-foreground mt-3">Excelente! Todas as revisões foram feitas.</h3>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Este card está dominado. Você pode renová-lo agora para gerar um novo ciclo.
+                            </p>
+                            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+                              <button
+                                onClick={handleStartRenewal}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
+                              >
+                                <RefreshCw className="h-4 w-4" />
+                                Renovar Ciclo
+                              </button>
+                              <button
+                                onClick={goToNext}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-secondary/60 hover:bg-secondary px-6 py-3 text-sm font-semibold text-foreground transition-all duration-200"
+                              >
+                                Próximo card
+                                <ChevronRight className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span
+                              className={`inline-block rounded-full px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] ${
+                                lastDifficulty === "EASY"
+                                  ? "bg-emerald-500/15 text-emerald-400"
+                                  : lastDifficulty === "MEDIUM"
+                                  ? "bg-amber-500/15 text-amber-400"
+                                  : "bg-rose-500/15 text-rose-400"
+                              }`}
                             >
-                              <RefreshCw className="h-4 w-4" />
-                              Renovar Ciclo
-                            </button>
+                              {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
+                            </span>
+                            <h3 className="text-xl font-bold text-foreground mt-3">
+                              Revisão {numericCurrentReview} concluída!
+                            </h3>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {schedulePreview.length > 0
+                                ? `Próxima revisão agendada para ${schedulePreview[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}.`
+                                : "Bom trabalho — ritmo mantido dentro do cronograma."}
+                            </p>
                             <button
                               onClick={goToNext}
-                              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-secondary/60 hover:bg-secondary px-6 py-3 text-sm font-semibold text-foreground transition-all duration-200"
+                              className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
                             >
                               Próximo card
                               <ChevronRight className="h-4 w-4" />
                             </button>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <span
-                            className={`inline-block rounded-full px-4 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.2em] ${
-                              lastDifficulty === "EASY"
-                                ? "bg-emerald-500/15 text-emerald-400"
-                                : lastDifficulty === "MEDIUM"
-                                ? "bg-amber-500/15 text-amber-400"
-                                : "bg-rose-500/15 text-rose-400"
-                            }`}
-                          >
-                            {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
-                          </span>
-                          <h3 className="text-xl font-bold text-foreground mt-3">
-                            Revisão {numericCurrentReview} concluída!
-                          </h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {schedulePreview.length > 0
-                              ? `Próxima revisão agendada para ${schedulePreview[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}.`
-                              : "Bom trabalho — ritmo mantido dentro do cronograma."}
-                          </p>
-                          <button
-                            onClick={goToNext}
-                            className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
-                          >
-                            Próximo card
-                            <ChevronRight className="h-4 w-4" />
-                          </button>
-                        </>
-                      )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
