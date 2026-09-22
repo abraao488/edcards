@@ -33,7 +33,7 @@ import {
   ClipboardList,
   PartyPopper,
 } from "lucide-react"
-import { hasCloze, parseCloze } from "@/lib/cloze"
+import { hasCloze, CLOZE_REGEX } from "@/lib/cloze"
 import DOMPurify from "dompurify"
 
 function stripHtmlForReview(html: string): string {
@@ -83,13 +83,41 @@ function isClozeCard(front: string, cardType?: string): boolean {
   return hasCloze(stripHtmlForReview(front))
 }
 
+/**
+ * Divide HTML nos marcadores cloze {{cN::...}} preservando todo o HTML ao redor.
+ * Retorna segmentos que são HTML (texto formatado) ou gaps (lacunas cloze).
+ */
+type HtmlSegment = { type: "html"; content: string }
+type GapSegment = { type: "gap"; answer: string; marker: string }
+type ClozeSegment = HtmlSegment | GapSegment
+
+function splitHtmlAtCloze(html: string): ClozeSegment[] {
+  const segments: ClozeSegment[] = []
+  const re = new RegExp(CLOZE_REGEX.source, "g")
+  let lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) {
+    if (m.index > lastIndex) {
+      segments.push({ type: "html", content: html.slice(lastIndex, m.index) })
+    }
+    segments.push({ type: "gap", answer: m[1], marker: m[0] })
+    lastIndex = re.lastIndex
+  }
+  if (lastIndex < html.length) {
+    segments.push({ type: "html", content: html.slice(lastIndex) })
+  }
+  if (segments.length === 0) {
+    segments.push({ type: "html", content: html })
+  }
+  return segments
+}
+
 function ClozeQuestionView({ text }: { text: string }) {
-  const plain = stripHtmlForReview(text)
-  const parts = parseCloze(plain)
+  const segments = splitHtmlAtCloze(text)
   return (
     <span>
-      {parts.map((p, i) =>
-        p.isGap ? (
+      {segments.map((seg, i) =>
+        seg.type === "gap" ? (
           <span
             key={i}
             className="inline-flex min-w-[72px] items-center justify-center rounded-md border-b-2 border-dashed border-primary/60 bg-primary/5 px-2 py-0.5 mx-1 font-mono text-sm font-semibold tracking-widest text-primary"
@@ -97,7 +125,7 @@ function ClozeQuestionView({ text }: { text: string }) {
             ______
           </span>
         ) : (
-          <span key={i}>{p.text}</span>
+          <SafeHtml key={i} html={seg.content} />
         )
       )}
     </span>
@@ -105,20 +133,19 @@ function ClozeQuestionView({ text }: { text: string }) {
 }
 
 function ClozeAnswerView({ text }: { text: string }) {
-  const plain = stripHtmlForReview(text)
-  const parts = parseCloze(plain)
+  const segments = splitHtmlAtCloze(text)
   return (
     <span>
-      {parts.map((p, i) =>
-        p.isGap ? (
+      {segments.map((seg, i) =>
+        seg.type === "gap" ? (
           <span
             key={i}
             className="inline-flex items-center justify-center rounded-md border-b-2 border-primary bg-primary/15 px-2 py-0.5 mx-1 font-bold text-primary"
           >
-            {p.answer}
+            {seg.answer}
           </span>
         ) : (
-          <span key={i}>{p.text}</span>
+          <SafeHtml key={i} html={seg.content} />
         )
       )}
     </span>

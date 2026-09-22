@@ -16,6 +16,25 @@ export const ALLOWED_COLOR_VALUES = Object.values(ALLOWED_COLORS)
 // Hex regex for validation
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}){1,2}$/
 
+// Converte rgb(r, g, b) ou rgba(r, g, b, a) para #hex — browsers produzem rgb via execCommand
+function rgbToHex(match: string): string {
+  const nums = match.replace(/rgba?\(/i, "").replace(/\)/, "").split(/[\s,]+/)
+  const r = parseInt(nums[0], 10)
+  const g = parseInt(nums[1], 10)
+  const b = parseInt(nums[2], 10)
+  if ([r, g, b].some((n) => isNaN(n) || n < 0 || n > 255)) return match
+  const hex = "#" + [r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")
+  return hex.toLowerCase()
+}
+
+// Normaliza cores dentro de style="..." de span — rgb→hex antes de sanitizar
+function normalizeColorInStyle(html: string): string {
+  return html.replace(
+    /(<span[^>]*style="[^"]*?color\s*:\s*)(rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*[\d.]+)?\s*\))/gi,
+    (_, prefix: string, colorFn: string) => prefix + rgbToHex(colorFn)
+  )
+}
+
 // Regexes exatas para cada cor permitida (case-insensitive) — usado no allowedStyles do sanitize-html
 const ALLOWED_COLOR_STYLE_REGEXES = ALLOWED_COLOR_VALUES.map(
   (c) => new RegExp(`^${c}$`, "i")
@@ -29,7 +48,10 @@ const ALLOWED_COLOR_STYLE_REGEXES = ALLOWED_COLOR_VALUES.map(
 export function sanitizeHtml(dirty: string): string {
   if (!dirty) return ""
 
-  const clean = sanitizeHtmlLib(dirty, {
+  // Normaliza rgb(r,g,b) → hex ANTES do sanitize-html, pois browsers produzem rgb via execCommand
+  const normalized = normalizeColorInStyle(dirty)
+
+  const clean = sanitizeHtmlLib(normalized, {
     allowedTags: ["b", "strong", "i", "em", "u", "span", "br", "p", "ul", "ol", "li", "div"],
     allowedAttributes: {
       span: ["style"],
