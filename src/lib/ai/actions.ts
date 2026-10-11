@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
+import { sanitizeHtml } from "@/lib/sanitize"
 
 export interface GeneratedFlashcard {
   front: string
@@ -463,8 +464,8 @@ export async function injectFlashcardsToDatabase(
     const nextOrder = (maxOrder._max.order ?? -1) + 1
     const flashcard = await prisma.flashcard.create({
       data: {
-        front: card.front,
-        back: card.back,
+        front: sanitizeHtml(card.front),
+        back: sanitizeHtml(card.back),
         deckId: deck.id,
         topicId: card.topicId || null,
         order: nextOrder,

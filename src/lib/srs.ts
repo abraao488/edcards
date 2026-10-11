@@ -420,12 +420,20 @@ async function createCycleInternal(params: CreateCycleParams): Promise<CycleCrea
  * Cria o ciclo de revisão completo. Guarda: só é permitida quando NÃO existe
  * ciclo ativo (a classificação acontece uma única vez por ciclo — nunca
  * é recalculada durante o ciclo).
+ *
+ * `precomputed` permite que a CLASSIFICAÇÃO (avaliada antes, sem escrever nada)
+ * seja reaproveitada no momento da gravação. Isso existe para que a criação do
+ * ciclo — que é escrita no banco — só aconteça quando o usuário confirma
+ * explicitamente ("Próximo card"), e não no momento em que a resposta é avaliada.
+ * As guards abaixo continuam valendo no servidor: mesmo com `precomputed`, um
+ * ciclo já ativo faz a operação falhar.
  */
 export async function classifyAndCreateCycle(
   progressCardId: string,
   studentAnswer: string,
   userId: string,
-  manualDifficulty?: DifficultyStage
+  manualDifficulty?: DifficultyStage,
+  precomputed?: AIEvaluation
 ): Promise<CycleCreationResult> {
   const progressCard = await prisma.progressCard.findUnique({
     where: { id: progressCardId },
@@ -447,13 +455,15 @@ export async function classifyAndCreateCycle(
     throw new Error("Este card já possui um ciclo de revisão ativo")
   }
 
-  const { difficulty, feedback } = await evaluateAnswerWithAI(
-    progressCard.flashcard.front,
-    progressCard.flashcard.back,
-    studentAnswer,
-    userId,
-    manualDifficulty
-  )
+  const { difficulty, feedback } =
+    precomputed ??
+    (await evaluateAnswerWithAI(
+      progressCard.flashcard.front,
+      progressCard.flashcard.back,
+      studentAnswer,
+      userId,
+      manualDifficulty
+    ))
 
   return createCycleInternal({
     progressCardId,
@@ -615,12 +625,16 @@ export async function completeCycleReview(
  * Reavalia a resposta (nova classificação do próximo ciclo), preserva o ciclo
  * anterior na história e cria um novo ReviewCycle ACTIVE com novo cronograma.
  * Guarda: só permitido quando não existe ciclo ativo.
+ *
+ * `precomputed` funciona como em `classifyAndCreateCycle`: permite gravar no
+ * "Próximo card" usando a classificação já avaliada, sem gravação anterior.
  */
 export async function renewReviewCycle(
   progressCardId: string,
   studentAnswer: string,
   userId: string,
-  manualDifficulty?: DifficultyStage
+  manualDifficulty?: DifficultyStage,
+  precomputed?: AIEvaluation
 ): Promise<CycleCreationResult> {
   const progressCard = await prisma.progressCard.findUnique({
     where: { id: progressCardId },
@@ -642,13 +656,15 @@ export async function renewReviewCycle(
     throw new Error("Ciclo de revisão ainda ativo — não é possível renovar")
   }
 
-  const { difficulty, feedback } = await evaluateAnswerWithAI(
-    progressCard.flashcard.front,
-    progressCard.flashcard.back,
-    studentAnswer,
-    userId,
-    manualDifficulty
-  )
+  const { difficulty, feedback } =
+    precomputed ??
+    (await evaluateAnswerWithAI(
+      progressCard.flashcard.front,
+      progressCard.flashcard.back,
+      studentAnswer,
+      userId,
+      manualDifficulty
+    ))
 
   return createCycleInternal({
     progressCardId,

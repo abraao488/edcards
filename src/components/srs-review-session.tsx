@@ -11,8 +11,10 @@ import {
   classifyAndCreateCycle,
   completeCycleReview,
   renewReviewCycle,
+  evaluateAnswerWithAI,
 } from "@/lib/srs"
 import {
+  buildReviewSchedule,
   deriveReviewState,
   type ActiveCycleInfo,
   type DifficultyStage,
@@ -34,22 +36,14 @@ import {
   PartyPopper,
 } from "lucide-react"
 import { hasCloze, CLOZE_REGEX } from "@/lib/cloze"
-import DOMPurify from "dompurify"
+import { sanitizeHtml } from "@/lib/sanitize"
 
 function stripHtmlForReview(html: string): string {
   return html.replace(/<[^>]*>/g, "")
 }
 
-function sanitizeForReview(html: string): string {
-  if (typeof window === "undefined") return html
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ["b", "strong", "i", "em", "u", "span", "br", "p", "ul", "ol", "li", "div"],
-    ALLOWED_ATTR: ["style"],
-  })
-}
-
 function SafeHtml({ html, className }: { html: string; className?: string }) {
-  const clean = sanitizeForReview(html)
+  const clean = sanitizeHtml(html)
   return <span className={className} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }} dangerouslySetInnerHTML={{ __html: clean }} />
 }
 
@@ -206,6 +200,25 @@ interface SRSReviewSessionProps {
   initialQueueCount?: number
 }
 
+/**
+ * Revisão já AVALIADA na tela COMPARING, mas ainda NÃO gravada no banco.
+ *
+ * Invariante do fluxo: nenhuma escrita que avance o ciclo (submitFirstReview,
+ * completeCycleReview, classifyAndCreateCycle, renewReviewCycle) pode acontecer
+ * antes do clique explícito em "Próximo card". Sair do Modo Foco, fechar a aba
+ * ou navegar para outra rota com um PendingCommit em mãos simplesmente descarta
+ * o pendingCommit — o banco continua intocado e a revisão continua pendente.
+ */
+type PendingCommit =
+  | { kind: "FIRST"; answer: string }
+  | { kind: "CYCLE"; answer: string; completedReviewNumber: number }
+  | {
+      kind: "CREATE_CYCLE" | "RENEW_CYCLE"
+      answer: string
+      classification: DifficultyStage
+      feedback: string | null
+    }
+
 export function SRSReviewSession({
   initialProgressCards,
   userId,
@@ -226,14 +239,20 @@ export function SRSReviewSession({
   const [lastDifficulty, setLastDifficulty] = useState<DifficultyStage | null>(null)
   const [aiFeedback, setAiFeedback] = useState<string | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [commitError, setCommitError] = useState<string | null>(null)
   const [feedbackKind, setFeedbackKind] = useState<"FIRST" | "CLASSIFIED" | "CYCLE" | null>(null)
   const [lastIsCycleCompleted, setLastIsCycleCompleted] = useState(false)
   const [schedulePreview, setSchedulePreview] = useState<Date[]>([])
+  const [pendingCommit, setPendingCommit] = useState<PendingCommit | null>(null)
+  const [completedReviewNumber, setCompletedReviewNumber] = useState<number | null>(null)
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null)
   const [queueRemaining, setQueueRemaining] = useState<number>(initialQueueCount ?? initialProgressCards.length)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const hasSavedRef = useRef(false)
+  // Trava síncrona de commit: `loading` é state e chegaria tarde demais para
+  // impedir dois cliques no mesmo tick — o que avançaria o ciclo duas vezes.
+  const committingRef = useRef(false)
 
   useEffect(() => {
     if (initialQueueCount !== undefined) setQueueRemaining(initialQueueCount)
@@ -345,12 +364,16 @@ export function SRSReviewSession({
     setLastDifficulty(null)
     setAiFeedback(null)
     setAiError(null)
+    setCommitError(null)
     setFeedbackKind(null)
     setLastIsCycleCompleted(false)
     setSchedulePreview([])
+    setPendingCommit(null)
+    setCompletedReviewNumber(null)
   }
 
-  const goToNext = () => {
+  // Avanço puramente local na sequência da sessão (nunca escreve no banco).
+  const advanceToNextCard = () => {
     if (currentIndex + 1 < cards.length) {
       const nextCard = cards[currentIndex + 1]
       setCurrentIndex((prev) => prev + 1)
@@ -367,6 +390,74 @@ export function SRSReviewSession({
       } else {
         router.refresh()
       }
+    }
+  }
+
+  /**
+   * ÚNICO ponto do fluxo que grava o avanço da revisão no banco.
+   *
+   * Se houver um PendingCommit (revisão já avaliada na tela COMPARING), a gravação
+   * acontece AQUI e só aqui: submitFirstReview / completeCycleReview /
+   * classifyAndCreateCycle / renewReviewCycle. Se a gravação falhar, o card NÃO
+   * avança e o pendingCommit é preservado para o usuário tentar de novo.
+   * Sem pendingCommit (Modo Consulta, ou nada avaliado ainda) é só navegação.
+   */
+  const handleNextCard = async () => {
+    if (committingRef.current) return
+
+    const pending = pendingCommit
+    const card = currentCard
+    if (!pending || !card) {
+      advanceToNextCard()
+      return
+    }
+
+    committingRef.current = true
+    setLoading(true)
+    setCommitError(null)
+
+    try {
+      if (pending.kind === "FIRST") {
+        await submitFirstReview(card.id, userId)
+        setCards((prev) =>
+          prev.map((c, i) =>
+            i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
+          )
+        )
+      } else if (pending.kind === "CYCLE") {
+        const r = await completeCycleReview(card.id, pending.answer, userId)
+        applyCycleReviewCompleted(
+          r.classification,
+          r.nextReviewDate,
+          r.currentReview,
+          r.totalReviews,
+          r.isCycleCompleted
+        )
+      } else {
+        const precomputed = {
+          difficulty: pending.classification,
+          feedback: pending.feedback,
+        }
+        const r =
+          pending.kind === "RENEW_CYCLE"
+            ? await renewReviewCycle(card.id, pending.answer, userId, undefined, precomputed)
+            : await classifyAndCreateCycle(card.id, pending.answer, userId, undefined, precomputed)
+        applyCycleCreated(r.classification, r.feedback, r.scheduleDates, r.totalReviews, r.cycleId)
+      }
+
+      decrementQueue()
+      advanceToNextCard()
+    } catch (err) {
+      // Nada foi gravado: o pendingCommit permanece para retry.
+      console.error("Erro ao registrar revisão:", err)
+      setCommitError(
+        err instanceof Error
+          ? `Erro ao registrar: ${err.message}`
+          : "Erro desconhecido ao registrar a revisão."
+      )
+    } finally {
+      committingRef.current = false
+      setLoading(false)
     }
   }
 
@@ -387,33 +478,20 @@ export function SRSReviewSession({
     setEvalMode(getInitialEvalMode(currentCard))
   }
 
-  // 1ª resolução: apenas agenda a revisão de 24h. Nenhuma classificação aqui.
-  const handleConfirmFirstReview = async () => {
+  // 1ª resolução: apenas registra a intenção de concluir. Nenhuma classificação
+  // e NENHUMA escrita aqui — submitFirstReview só roda no "Próximo card".
+  const handleConfirmFirstReview = () => {
     if (!currentCard || loading) return
     if (isQuizMode || state !== "FIRST_RESOLUTION") return
-    setLoading(true)
-    setStep("EVALUATING")
 
-    try {
-      await submitFirstReview(currentCard.id, userId)
-      decrementQueue()
-      setLastDifficulty("MEDIUM")
-      setFeedbackKind("FIRST")
-      setLastIsCycleCompleted(false)
-      setSchedulePreview([])
-      setAiFeedback(null)
-      setCards((prev) =>
-        prev.map((c, i) =>
-          i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
-        )
-      )
-      setStep("FEEDBACK")
-      setLoading(false)
-      // Avanço manual: o usuário clica em "Próximo card" no FEEDBACK
-    } catch (err) {
-      console.error("Erro ao registrar 1ª revisão:", err)
-      setLoading(false)
-    }
+    setPendingCommit({ kind: "FIRST", answer: inputValue })
+    setCompletedReviewNumber(null)
+    setLastDifficulty("MEDIUM")
+    setFeedbackKind("FIRST")
+    setLastIsCycleCompleted(false)
+    setSchedulePreview([])
+    setAiFeedback(null)
+    setStep("FEEDBACK")
   }
 
   // Aplica localmente o resultado de uma classificação (ciclo criado / renovado)
@@ -474,44 +552,86 @@ export function SRSReviewSession({
 
   // Classificação (2ª resolução) OU renovação OU conclusão de revisão do ciclo.
   // Nenhuma agulha toca o modo consulta: se chegar aqui, state nunca é CONSULTA.
+  //
+  // IMPORTANTE: este handler só AVALIA. Ele monta o PendingCommit e o preview
+  // exibido no FEEDBACK, mas não chama o backend de escrita. A gravação
+  // (classifyAndCreateCycle / renewReviewCycle / completeCycleReview) acontece
+  // exclusivamente em handleNextCard ("Próximo card").
   const handleConfirmReview = async (manualDifficulty?: DifficultyStage) => {
     if (!currentCard || loading) return
     if (isQuizMode) return // consulta: use handleNextQuizCard, não chama IA nem atualiza banco
     setLoading(true)
     setAiError(null)
-    setStep("EVALUATING")
 
     try {
-      if (state === "AGUARDANDO_AVALIACAO_24H") {
-        const r = await classifyAndCreateCycle(currentCard.id, inputValue, userId, manualDifficulty)
-        applyCycleCreated(r.classification, r.feedback, r.scheduleDates, r.totalReviews, r.cycleId)
-      } else if (state === "CICLO_FINALIZADO") {
-        const r = await renewReviewCycle(currentCard.id, inputValue, userId, manualDifficulty)
-        applyCycleCreated(r.classification, r.feedback, r.scheduleDates, r.totalReviews, r.cycleId)
+      if (state === "AGUARDANDO_AVALIACAO_24H" || state === "CICLO_FINALIZADO") {
+        // Única etapa que ainda fala com a IA — e evaluateAnswerWithAI é
+        // somente leitura (nenhum write no banco).
+        setStep("EVALUATING")
+        const { difficulty, feedback } = await evaluateAnswerWithAI(
+          currentCard.flashcard.front,
+          currentCard.flashcard.back,
+          inputValue,
+          userId,
+          manualDifficulty
+        )
+        setPendingCommit({
+          kind: state === "CICLO_FINALIZADO" ? "RENEW_CYCLE" : "CREATE_CYCLE",
+          answer: inputValue,
+          classification: difficulty,
+          feedback,
+        })
+        setCompletedReviewNumber(null)
+        setLastDifficulty(difficulty)
+        setAiFeedback(feedback)
+        // Preview do cronograma que createCycleInternal vai gravar no commit.
+        setSchedulePreview(
+          buildReviewSchedule(difficulty, new Date()).map((s) => s.scheduleDate)
+        )
+        setLastIsCycleCompleted(false)
+        setFeedbackKind("CLASSIFIED")
       } else if (state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO") {
-        const r = await completeCycleReview(currentCard.id, inputValue, userId)
-        applyCycleReviewCompleted(r.classification, r.nextReviewDate, r.currentReview, r.totalReviews, r.isCycleCompleted)
+        // completeCycleReview não reclassifica: o cronograma foi congelado na
+        // classificação. O preview abaixo apenas reproduz localmente o
+        // cronograma JÁ persistido (mesma buildReviewSchedule, mesma baseDate
+        // do ReviewCycle) — nenhuma escrita acontece aqui.
+        const cycle = currentCard.activeCycle
+        if (!cycle) {
+          throw new Error("Nenhum ciclo de revisão ativo para este card")
+        }
+        const isLast = cycle.currentReview >= cycle.totalReviews
+        const plan = buildReviewSchedule(cycle.classification, new Date(cycle.baseDate))
+        setPendingCommit({
+          kind: "CYCLE",
+          answer: inputValue,
+          completedReviewNumber: cycle.currentReview,
+        })
+        setCompletedReviewNumber(cycle.currentReview)
+        setLastDifficulty(cycle.classification)
+        setAiFeedback(null)
+        setSchedulePreview([plan[isLast ? cycle.currentReview - 1 : cycle.currentReview].scheduleDate])
+        setLastIsCycleCompleted(isLast)
+        setFeedbackKind("CYCLE")
       } else {
         throw new Error("Ação de revisão indisponível para este card")
       }
 
-      decrementQueue()
       setStep("FEEDBACK")
-      setLoading(false)
     } catch (err) {
       console.error("Erro ao avaliar resposta:", err)
-      setLoading(false)
-      setLastDifficulty("MEDIUM")
+      setPendingCommit(null)
+      setLastDifficulty(null)
       setAiFeedback(null)
+      setFeedbackKind(null)
+      setSchedulePreview([])
       setAiError(
         err instanceof Error
           ? `Erro ao avaliar: ${err.message}`
           : "Erro desconhecido ao avaliar resposta."
       )
-      setFeedbackKind("CYCLE")
-      setLastIsCycleCompleted(false)
-      setSchedulePreview([])
-      setStep("FEEDBACK")
+      setStep("COMPARING")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -529,14 +649,18 @@ export function SRSReviewSession({
   }
 
   const handleSkip = async () => {
-    if (!currentCard || loading) return
+    if (!currentCard || committingRef.current) return
     setLoading(true)
     try {
+      // "Pular" é uma ação de descarte: se a revisão chegou a ser avaliada, o
+      // pendingCommit é descartado sem gravação (skipFlashcard é a única escrita,
+      // e ela apenas empurra a revisão para amanhã).
+      setPendingCommit(null)
       if (!isQuizMode) {
         await skipFlashcard(currentCard.id)
+        decrementQueue()
       }
-      if (!isQuizMode) decrementQueue()
-      goToNext()
+      advanceToNextCard()
     } catch (err) {
       console.error("Erro ao pular card:", err)
     } finally {
@@ -549,7 +673,7 @@ export function SRSReviewSession({
   const handleNextQuizCard = () => {
     if (!currentCard) return
     if (!isQuizMode) return
-    goToNext()
+    advanceToNextCard()
   }
 
   const showSidebar = !isFocused && !hideSidebar
@@ -657,8 +781,11 @@ export function SRSReviewSession({
   const activeCycle = currentCard?.activeCycle ?? null
   const isFinalReviewState = state === "ULTIMA_REVISAO"
   const isCycleState = state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO"
-  // Nº da revisão que acabou de ser concluída (o local já aponta para a próxima)
-  const numericCurrentReview = activeCycle ? activeCycle.currentReview - 1 : 0
+  // Nº da revisão concluída. No FEEDBACK o cards local ainda NÃO foi mutado
+  // (a mutação só acontece após o commit), então o número vem do PendingCommit.
+  const completedReviewLabel = completedReviewNumber ?? (activeCycle ? activeCycle.currentReview - 1 : 0)
+  // "Novo ciclo iniciado!" é a renovação; o 1º ciclo do card é "Ciclo iniciado!".
+  const pendingIsRenewal = pendingCommit?.kind === "RENEW_CYCLE"
 
   // MODE SELECTOR: qual painel de ação render no COMPARING por estado
   const isClassificationState = state === "AGUARDANDO_AVALIACAO_24H" || state === "CICLO_FINALIZADO"
@@ -958,7 +1085,9 @@ export function SRSReviewSession({
               </div>
             )}
 
-            {/* EVALUATING STEP (LOADING ACTION) */}
+            {/* EVALUATING STEP — só a classificação por IA chega aqui.
+                A gravação no banco NÃO acontece nesta etapa: ela só ocorre no
+                clique em "Próximo card" (handleNextCard). */}
             {step === "EVALUATING" && (
               <div className="flex-1 flex flex-col items-center justify-center space-y-4 py-12">
                 <div className="relative">
@@ -967,20 +1096,13 @@ export function SRSReviewSession({
                 </div>
                 <div className="text-center">
                   <h3 className="text-lg font-bold tracking-tight text-foreground">
-                    {state === "FIRST_RESOLUTION"
-                      ? "Agendando 1ª revisão..."
-                      : state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO"
-                      ? "Registrando revisão do ciclo..."
-                      : state === "CICLO_FINALIZADO"
-                      ? "Gerando novo ciclo..."
+                    {state === "CICLO_FINALIZADO"
+                      ? "Analisando resposta para o novo ciclo..."
                       : "Analisando resposta..."}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {state === "FIRST_RESOLUTION"
-                      ? "Sua 1ª revisão foi agendada para daqui a 24 horas."
-                      : state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO"
-                      ? "Avançando no cronograma da curta/média/longa retenção."
-                      : "A IA do Edcards está realizando a comparação semântica."}
+                    A IA do Edcards está realizando a comparação semântica. Nada é gravado
+                    até você confirmar em &quot;Próximo card&quot;.
                   </p>
                 </div>
               </div>
@@ -989,11 +1111,13 @@ export function SRSReviewSession({
             {/* FEEDBACK STEP */}
             {step === "FEEDBACK" && (
               <div className="flex-1 flex flex-col items-center justify-center space-y-6 py-12 animate-in zoom-in-95 duration-200">
-                {aiError && (
+                {(commitError || aiError) && (
                   <div className="w-full max-w-md rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-center">
-                    <p className="text-sm text-red-400 font-medium">{aiError}</p>
+                    <p className="text-sm text-red-400 font-medium">{commitError ?? aiError}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      A avaliação foi feita por similaridade de texto como fallback.
+                      {commitError
+                        ? "A revisão NÃO foi gravada — o cronograma continua intacto. Clique em “Próximo card” para tentar de novo."
+                        : "A avaliação foi feita por similaridade de texto como fallback."}
                     </p>
                   </div>
                 )}
@@ -1011,7 +1135,8 @@ export function SRSReviewSession({
                         Compare sua resposta com o gabarito acima
                       </span>
                       <button
-                        onClick={goToNext}
+                        onClick={handleNextCard}
+                        disabled={loading}
                         className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
                       >
                         Próximo card
@@ -1060,7 +1185,7 @@ export function SRSReviewSession({
                           {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
                         </span>
                         <h3 className="text-xl font-bold text-foreground mt-3">
-                          {state === "CICLO_FINALIZADO" ? "Novo ciclo iniciado!" : "Ciclo de revisão iniciado!"}
+                          {pendingIsRenewal ? "Novo ciclo iniciado!" : "Ciclo de revisão iniciado!"}
                         </h3>
                         <p className="text-sm text-muted-foreground mt-1">
                           {aiFeedback ||
@@ -1093,7 +1218,8 @@ export function SRSReviewSession({
                           </div>
                         )}
                         <button
-                          onClick={goToNext}
+                          onClick={handleNextCard}
+                          disabled={loading}
                           className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
                         >
                           Próximo card
@@ -1145,7 +1271,8 @@ export function SRSReviewSession({
                                 Renovar Ciclo
                               </button>
                               <button
-                                onClick={goToNext}
+                                onClick={handleNextCard}
+                                disabled={loading}
                                 className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-secondary/60 hover:bg-secondary px-6 py-3 text-sm font-semibold text-foreground transition-all duration-200"
                               >
                                 Próximo card
@@ -1167,7 +1294,7 @@ export function SRSReviewSession({
                               {lastDifficulty === "EASY" ? "FÁCIL" : lastDifficulty === "MEDIUM" ? "MÉDIO" : "DIFÍCIL"}
                             </span>
                             <h3 className="text-xl font-bold text-foreground mt-3">
-                              Revisão {numericCurrentReview} concluída!
+                              Revisão {completedReviewLabel} concluída!
                             </h3>
                             <p className="text-sm text-muted-foreground mt-1">
                               {schedulePreview.length > 0
@@ -1175,7 +1302,8 @@ export function SRSReviewSession({
                                 : "Bom trabalho — ritmo mantido dentro do cronograma."}
                             </p>
                             <button
-                              onClick={goToNext}
+                              onClick={handleNextCard}
+                              disabled={loading}
                               className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-all duration-300 hover:shadow-[0_0_15px_rgba(0,229,255,0.3)]"
                             >
                               Próximo card
