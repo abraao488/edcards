@@ -192,7 +192,6 @@ function AnswerComparisonView({
 
 interface SRSReviewSessionProps {
   initialProgressCards: FlashcardData[]
-  userId: string
   email: string
   isQuizMode?: boolean
   hideSidebar?: boolean
@@ -221,7 +220,6 @@ type PendingCommit =
 
 export function SRSReviewSession({
   initialProgressCards,
-  userId,
   email,
   isQuizMode = false,
   hideSidebar = false,
@@ -418,14 +416,14 @@ export function SRSReviewSession({
 
     try {
       if (pending.kind === "FIRST") {
-        await submitFirstReview(card.id, userId)
+        await submitFirstReview(card.id)
         setCards((prev) =>
           prev.map((c, i) =>
             i === currentIndex ? { ...c, firstReviewAt: new Date().toISOString() } : c
           )
         )
       } else if (pending.kind === "CYCLE") {
-        const r = await completeCycleReview(card.id, pending.answer, userId)
+        const r = await completeCycleReview(card.id, pending.answer)
         applyCycleReviewCompleted(
           r.classification,
           r.nextReviewDate,
@@ -440,8 +438,8 @@ export function SRSReviewSession({
         }
         const r =
           pending.kind === "RENEW_CYCLE"
-            ? await renewReviewCycle(card.id, pending.answer, userId, undefined, precomputed)
-            : await classifyAndCreateCycle(card.id, pending.answer, userId, undefined, precomputed)
+            ? await renewReviewCycle(card.id, pending.answer, undefined, precomputed)
+            : await classifyAndCreateCycle(card.id, pending.answer, undefined, precomputed)
         applyCycleCreated(r.classification, r.feedback, r.scheduleDates, r.totalReviews, r.cycleId)
       }
 
@@ -572,7 +570,6 @@ export function SRSReviewSession({
           currentCard.flashcard.front,
           currentCard.flashcard.back,
           inputValue,
-          userId,
           manualDifficulty
         )
         setPendingCommit({

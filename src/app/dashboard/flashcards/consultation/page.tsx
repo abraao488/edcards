@@ -97,7 +97,6 @@ export default async function ConsultationPage({
 
         <SRSReviewSession
           initialProgressCards={progressCards}
-          userId={user.id}
           email={user.email || ""}
           isQuizMode={true}
           hideSidebar={true}
@@ -164,7 +163,6 @@ export default async function ConsultationPage({
 
       <SRSReviewSession
         initialProgressCards={progressCards}
-        userId={user.id}
         email={user.email || ""}
         isQuizMode={true}
         hideSidebar={true}

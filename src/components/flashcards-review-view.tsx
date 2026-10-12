@@ -6,7 +6,6 @@ import type { SubjectWithTopicsAndCounts } from "@/lib/materias/actions"
 
 interface FlashcardsReviewViewProps {
   initialProgressCards: Parameters<typeof SRSReviewSession>[0]["initialProgressCards"]
-  userId: string
   email: string
   pomodoroMin: number
   initialQueueCount: number
@@ -16,7 +15,6 @@ interface FlashcardsReviewViewProps {
 
 export function FlashcardsReviewView({
   initialProgressCards,
-  userId,
   email,
   pomodoroMin,
   initialQueueCount,
@@ -31,7 +29,6 @@ export function FlashcardsReviewView({
 
       <SRSReviewSession
         initialProgressCards={initialProgressCards}
-        userId={userId}
         email={email}
         pomodoroMin={pomodoroMin}
         initialQueueCount={initialQueueCount}

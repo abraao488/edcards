@@ -84,7 +84,6 @@ export default async function DeckDetailPage({
 
       <SRSReviewSession
         initialProgressCards={dueProgressCards}
-        userId={user.id}
         email={user.email || ""}
         hideSidebar={true}
         pomodoroMin={settings?.pomodoroMin ?? 25}

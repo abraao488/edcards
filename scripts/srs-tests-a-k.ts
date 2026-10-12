@@ -2,18 +2,17 @@
  * Testes A–K do algoritmo de revisões do Edcards.
  * Roda contra o banco real com um usuário descartável (removido no final).
  * Uso: npx tsx scripts/srs-tests-a-k.ts
+ *
+ * As Server Actions de src/lib/srs.ts exigem sessão autenticada
+ * (ensureUserExists) e assinatura ativa (requireActiveSubscriptionForAction).
+ * Fora de um request do Next não existe cookie de sessão, então este harness
+ * injeta um ensureUserExists falso via require.cache ANTES de importar
+ * @/lib/srs — o guard de assinatura e TODOS os guards de propriedade rodam
+ * de verdade, contra o banco.
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { prisma } from "@/lib/prisma"
-import {
-  classifyAndCreateCycle,
-  completeCycleReview,
-  renewReviewCycle,
-  skipFlashcard,
-  submitFirstReview,
-  ensureProgressCardsForFlashcards,
-} from "@/lib/srs"
 import {
   buildReviewSchedule,
   deriveReviewState,
@@ -22,7 +21,6 @@ import {
   addDays,
   type ActiveCycleInfo,
 } from "@/lib/srs-review-utils"
-import { getRevisionCalendarForUser } from "@/lib/dashboard/actions"
 
 const results: Promise<{ name: string; ok: boolean; detail?: string }>[] = []
 
@@ -62,6 +60,52 @@ function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg)
 }
 
+// ------------------------------------------------------- sessão de teste (mock)
+type SrsModule = typeof import("@/lib/srs")
+type DashboardModule = typeof import("@/lib/dashboard/actions")
+
+let classifyAndCreateCycle: SrsModule["classifyAndCreateCycle"]
+let completeCycleReview: SrsModule["completeCycleReview"]
+let renewReviewCycle: SrsModule["renewReviewCycle"]
+let skipFlashcard: SrsModule["skipFlashcard"]
+let submitFirstReview: SrsModule["submitFirstReview"]
+let ensureProgressCardsForFlashcards: SrsModule["ensureProgressCardsForFlashcards"]
+let getRevisionCalendarForUser: DashboardModule["getRevisionCalendarForUser"]
+
+/**
+ * As Server Actions chamam ensureUserExists(), que depende de cookies do
+ * Next (`cookies()`), indisponíveis fora de um request. Injetamos uma sessão
+ * equivalente (mesmo usuário criado no banco) via require.cache ANTES de
+ * carregar @/lib/srs — o restante dos guards (assinatura + propriedade)
+ * continua sendo executado de verdade.
+ */
+function mockAuthSession(userId: string, email: string) {
+  const authFile = require.resolve("@/lib/auth/sync")
+  require.cache[authFile] = {
+    id: authFile,
+    filename: authFile,
+    loaded: true,
+    exports: { ensureUserExists: async () => ({ id: userId, email }) },
+    children: [],
+    paths: [],
+  } as unknown as NodeModule
+}
+
+async function loadServerActions() {
+  srsModule = await import("@/lib/srs")
+  dashboardModule = await import("@/lib/dashboard/actions")
+  classifyAndCreateCycle = srsModule.classifyAndCreateCycle
+  completeCycleReview = srsModule.completeCycleReview
+  renewReviewCycle = srsModule.renewReviewCycle
+  skipFlashcard = srsModule.skipFlashcard
+  submitFirstReview = srsModule.submitFirstReview
+  ensureProgressCardsForFlashcards = srsModule.ensureProgressCardsForFlashcards
+  getRevisionCalendarForUser = dashboardModule.getRevisionCalendarForUser
+}
+
+let srsModule: SrsModule
+let dashboardModule: DashboardModule
+
 function dateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
@@ -79,6 +123,11 @@ async function createTestWorld() {
       email,
       settings: { create: { aiEnabled: false } },
     },
+  })
+
+  // requireActiveSubscriptionForAction exige assinatura ativa
+  await prisma.subscription.create({
+    data: { userId: user.id, status: "ACTIVE", plan: "INDIVIDUAL" },
   })
 
   const profile = await prisma.profile.create({
@@ -104,6 +153,11 @@ async function createTestWorld() {
   const flashcardC = await makeFlashcard("Fórmula da água?", "H2O")
   const flashcardD = await makeFlashcard("4 + 4 = ?", "8")
 
+  // Sessão autenticada = usuário do banco. Precisa existir ANTES de carregar
+  // as Server Actions (que chamam ensureUserExists no início de cada uma).
+  mockAuthSession(user.id, email)
+  await loadServerActions()
+
   await ensureProgressCardsForFlashcards(profile.id, [
     flashcardA.id,
     flashcardB.id,
@@ -125,6 +179,28 @@ async function createTestWorld() {
   const cardD = await byFlashcard(flashcardD.id)
   assert(!!cardA && !!cardB && !!cardC && !!cardD, "4 ProgressCards criadas")
 
+  // Segundo usuário descartável: dono de um card que NÃO pertence ao usuário
+  // autenticado — usado no teste de propriedade (L).
+  const intruderId = `test-${crypto.randomUUID()}`
+  const intruder = await prisma.user.create({
+    data: { id: intruderId, email: `${intruderId}@edcards.test` },
+  })
+  await prisma.subscription.create({
+    data: { userId: intruder.id, status: "ACTIVE", plan: "INDIVIDUAL" },
+  })
+  const intruderProfile = await prisma.profile.create({
+    data: { userId: intruder.id, name: "Teste Invasor", isActiveProfile: true },
+  })
+  const intruderDeck = await prisma.deck.create({
+    data: { userId: intruder.id, name: "Deck Invasor" },
+  })
+  const intruderCard = await prisma.flashcard.create({
+    data: { deckId: intruderDeck.id, front: "Card do invasor", back: "segredo" },
+  })
+  const intruderProgressCard = await prisma.progressCard.create({
+    data: { profileId: intruderProfile.id, flashcardId: intruderCard.id },
+  })
+
   return {
     prisma,
     userId,
@@ -137,11 +213,21 @@ async function createTestWorld() {
     flashcardB,
     flashcardC,
     flashcardD,
+    intruder: {
+      userId: intruder.id,
+      profileId: intruderProfile.id,
+      progressCardId: intruderProgressCard.id,
+      flashcardId: intruderCard.id,
+    },
   }
 }
 
 async function cleanup(userId: string) {
   await prisma.user.delete({ where: { id: userId } }).catch(() => undefined)
+}
+
+async function cleanupAll(userIds: string[]) {
+  for (const id of userIds) await cleanup(id)
 }
 
 async function writeQueueIncludes(profileId: string, ids: string[]) {
@@ -191,7 +277,7 @@ async function main() {
 
   // ---------- B) Classificação cria ciclo persistido ----------
   test("B: classifyAndCreateCycle cria ReviewCycle + cronograma persistido", async () => {
-    const r = await classifyAndCreateCycle(world.cardB.id, "Brasília", world.userId, "MEDIUM")
+    const r = await classifyAndCreateCycle(world.cardB.id, "Brasília", "MEDIUM")
     eq(r.classification, "MEDIUM", "classificação")
     eq(r.totalReviews, 5, "total MEDIUM")
 
@@ -215,6 +301,11 @@ async function main() {
     eq(pc?.difficultyStage, "MEDIUM", "difficultyStage")
     eq(pc!.currentCycleDay, 1, "currentCycleDay")
     assert(!!pc && sameDate(pc.nextReviewDate, c.scheduledReviews[0]!.scheduleDate), "nextReviewDate = 1ª revisão")
+
+    // Identidade do FlashcardReview vem da sessão, não do cliente
+    const review = await prisma.flashcardReview.findFirst({ where: { cycleId: r.cycleId } })
+    assert(!!review, "FlashcardReview criado")
+    eq(review!.userId, world.userId, "FlashcardReview em nome do usuário autenticado")
   })
 
   // ---------- C) Schema de intervalos por classificação ----------
@@ -250,7 +341,7 @@ async function main() {
 
   // ---------- E) Avanço no meio do ciclo (não reclassifica) ----------
   test("E: completeCycleReview avança currentReview e marca a revisão feita", async () => {
-    const r = await completeCycleReview(world.cardB.id, "Brasília", world.userId)
+    const r = await completeCycleReview(world.cardB.id, "Brasília")
     eq(r.currentReview, 2, "próxima revisão = 2")
     eq(r.isFinal, false, "não é final")
 
@@ -266,17 +357,23 @@ async function main() {
 
     const pc = await prisma.progressCard.findUnique({ where: { id: world.cardB.id } })
     eq(pc?.currentCycleDay, 2, "progressCard.currentCycleDay=2")
+
+    // completeCycleReview grava o log de revisão do usuário autenticado
+    const review = await prisma.flashcardReview.findFirst({
+      where: { cycleId: r.cycleId, userId: world.userId },
+    })
+    assert(!!review, "FlashcardReview da revisão em nome do usuário autenticado")
   })
 
   // ---------- F) Fim do ciclo sem renovação ----------
   test("F: completar todas as revisões finaliza o ciclo (COMPLETED)", async () => {
-    await classifyAndCreateCycle(world.cardC.id, "H2O", world.userId, "HARD")
+    await classifyAndCreateCycle(world.cardC.id, "H2O", "HARD")
     const total = 6 // HARD
     for (let i = 0; i < total - 1; i++) {
-      const r = await completeCycleReview(world.cardC.id, "H2O", world.userId)
+      const r = await completeCycleReview(world.cardC.id, "H2O")
       eq(r.isFinal, false, `revisão ${i + 1} de ${total} não final`)
     }
-    const last = await completeCycleReview(world.cardC.id, "H2O", world.userId)
+    const last = await completeCycleReview(world.cardC.id, "H2O")
     eq(last.isFinal, true, "última revisão final")
     eq(last.isCycleCompleted, true, "ciclo completo")
 
@@ -297,7 +394,7 @@ async function main() {
 
   // ---------- G) Renovação re-classifica e preserva histórico ----------
   test("G: renewReviewCycle gera novo ciclo, preserva o anterior", async () => {
-    const r = await renewReviewCycle(world.cardC.id, "H2O", world.userId, "HARD")
+    const r = await renewReviewCycle(world.cardC.id, "H2O", "HARD")
     eq(r.classification, "HARD", "nova classificação")
     eq(r.totalReviews, 6, "novo ciclo HARD=6")
 
@@ -344,11 +441,11 @@ async function main() {
     eq(inQueue, [true, true, true, true], "cardA(1ª), cardB(ativo), cardC(renovado), cardD(1ª) na fila")
 
     // cardD completa o ciclo EASY inteiro -> deve sair da fila
-    await classifyAndCreateCycle(world.cardD.id, "8", world.userId, "EASY")
+    await classifyAndCreateCycle(world.cardD.id, "8", "EASY")
     for (let i = 0; i < 3; i++) {
-      await completeCycleReview(world.cardD.id, "8", world.userId)
+      await completeCycleReview(world.cardD.id, "8")
     }
-    const done = await completeCycleReview(world.cardD.id, "8", world.userId)
+    const done = await completeCycleReview(world.cardD.id, "8")
     eq(done.isCycleCompleted, true, "cardD ciclo completo")
 
     const after = await writeQueueIncludes(world.profileId, [world.cardA.id, world.cardB.id, world.cardC.id, world.cardD.id])
@@ -421,9 +518,61 @@ async function main() {
     )
   })
 
+  // ---------- L) Propriedade: card de outro usuário é rejeitado ----------
+  test("L: card de outro usuário é recusado por todas as Server Actions", async () => {
+    const pc = world.intruder.progressCardId
+
+    const rejects = async (label: string, fn: () => Promise<unknown>, pattern: RegExp) => {
+      let threw = false
+      try {
+        await fn()
+      } catch (err) {
+        threw = true
+        const msg = (err as Error).message
+        assert(pattern.test(msg), `${label}: erro inesperado -> ${msg}`)
+      }
+      assert(threw, `${label}: deveria ter sido rejeitado`)
+    }
+
+    const notYours = /não pertence a este usuário/
+
+    await rejects("skipFlashcard", () => skipFlashcard(pc), notYours)
+    await rejects("submitFirstReview", () => submitFirstReview(pc), notYours)
+    await rejects("classifyAndCreateCycle", () =>
+      classifyAndCreateCycle(pc, "segredo", "MEDIUM"), notYours
+    )
+    await rejects("completeCycleReview", () => completeCycleReview(pc, "segredo"), notYours)
+    await rejects("renewReviewCycle", () => renewReviewCycle(pc, "segredo", "MEDIUM"), notYours)
+    // perfil de outro usuário
+    await rejects("ensureProgressCardsForFlashcards (perfil alheio)", () =>
+      ensureProgressCardsForFlashcards(world.intruder.profileId, [world.intruder.flashcardId]),
+      notYours
+    )
+    // perfil PRÓPRIO + flashcard de outro usuário
+    await rejects("ensureProgressCardsForFlashcards (card alheio)", () =>
+      ensureProgressCardsForFlashcards(world.profileId, [world.intruder.flashcardId]),
+    /não foram encontrados ou não pertencem a este usuário/
+    )
+
+    // Nenhuma escrita vazou para o card do outro usuário
+    const after = await prisma.progressCard.findUnique({
+      where: { id: pc },
+      include: { reviewCycles: true },
+    })
+    assert(after?.firstReviewAt === null, "firstReviewAt continua vazio")
+    eq(after?.totalReviews, 0, "totalReviews intocado")
+    eq(after?.reviewCycles.length, 0, "nenhum ReviewCycle criado")
+
+    // Nenhum ProgressCard foi criado para o flashcard alheio no meu perfil
+    const leaked = await prisma.progressCard.findFirst({
+      where: { profileId: world.profileId, flashcardId: world.intruder.flashcardId },
+    })
+    assert(leaked === null, "nenhum ProgressCard criado para flashcard alheio")
+  })
+
   // ------------------------------------------------- query the results
   const failed = await runAll()
-  await cleanup(world.userId)
+  await cleanupAll([world.userId, world.intruder.userId])
   await prisma.$disconnect()
   process.exit(failed > 0 ? 1 : 0)
 }

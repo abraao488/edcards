@@ -3,6 +3,8 @@
 import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
+import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 import {
   buildReviewSchedule,
   classificationToRating,
@@ -63,38 +65,43 @@ export interface AIEvaluation {
  * Evaluates the student's answer semantically using Groq AI
  * or uses manual difficulty if provided, or falls back to Jaccard similarity.
  * Returns the difficulty plus an optional short feedback message (AI only).
+ *
+ * A identidade do usuário NUNCA vem do cliente: é sempre a sessão
+ * (ensureUserExists / requireActiveSubscriptionForAction).
  */
 export async function evaluateAnswerWithAI(
   question: string,
   correctAnswer: string,
   studentAnswer: string,
-  userId?: string,
   manualDifficulty?: DifficultyStage
 ): Promise<AIEvaluation> {
+  const user = await ensureUserExists()
+  await requireActiveSubscriptionForAction()
+
   // 1. Se o usuário selecionou uma dificuldade manualmente (autoavaliação),
   // respeita a escolha imediata sem consultar a IA
   if (manualDifficulty) {
     return { difficulty: manualDifficulty, feedback: null }
   }
 
-  // 2. Verifica se o usuário desabilitou a IA nas configurações
-  if (userId) {
-    try {
-      const settings = await prisma.userSettings.findUnique({
-        where: { userId },
-      })
-      if (settings && !settings.aiEnabled) {
-        const normalizedUser = normalizeText(studentAnswer)
-        const normalizedCorrect = normalizeText(correctAnswer)
-        const sim = calculateSimilarity(normalizedUser, normalizedCorrect)
-        if (sim >= 0.7) return { difficulty: "EASY", feedback: null }
-        if (sim >= 0.4) return { difficulty: "MEDIUM", feedback: null }
-        return { difficulty: "HARD", feedback: null }
-      }
-    } catch (err) {
-      console.error("Erro ao ler UserSettings:", err)
-      Sentry.captureException(err, { tags: { source: "srs/user-settings" } })
+  // 2. Verifica se o usuário desabilitou a IA nas configurações.
+  // Sempre nas configurações do usuário AUTENTICADO (nunca de um id vindo
+  // do cliente).
+  try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId: user.id },
+    })
+    if (settings && !settings.aiEnabled) {
+      const normalizedUser = normalizeText(studentAnswer)
+      const normalizedCorrect = normalizeText(correctAnswer)
+      const sim = calculateSimilarity(normalizedUser, normalizedCorrect)
+      if (sim >= 0.7) return { difficulty: "EASY", feedback: null }
+      if (sim >= 0.4) return { difficulty: "MEDIUM", feedback: null }
+      return { difficulty: "HARD", feedback: null }
     }
+  } catch (err) {
+    console.error("Erro ao ler UserSettings:", err)
+    Sentry.captureException(err, { tags: { source: "srs/user-settings" } })
   }
 
   // 3. Avaliação semântica via Groq API
@@ -187,8 +194,10 @@ Retorne estritamente um JSON estruturado como:
  * um ciclo ativo, a revisão agendada pendente também é movida para amanhã.
  */
 export async function skipFlashcard(progressCardId: string): Promise<void> {
+  const user = await ensureUserExists()
+
   const progressCard = await prisma.progressCard.findUnique({
-    where: { id: progressCardId },
+    where: { id: progressCardId, profile: { userId: user.id } },
     select: {
       flashcardId: true,
       reviewCycles: {
@@ -207,7 +216,7 @@ export async function skipFlashcard(progressCardId: string): Promise<void> {
   })
 
   if (!progressCard) {
-    throw new Error("ProgressCard não encontrado")
+    throw new Error("ProgressCard não encontrado ou não pertence a este usuário")
   }
 
   const nextDay = new Date()
@@ -244,20 +253,20 @@ export async function skipFlashcard(progressCardId: string): Promise<void> {
  * Submits the first resolution of a card, setting firstReviewAt = now()
  * and scheduling nextReviewDate for 24h later without entering SRS cycle yet.
  * FIX streak: também cria FlashcardReview para alimentar calculateStreak.
+ * O FlashcardReview é gravado SEMPRE em nome do usuário autenticado.
  */
-export async function submitFirstReview(
-  progressCardId: string,
-  userId: string
-): Promise<{
+export async function submitFirstReview(progressCardId: string): Promise<{
   nextReviewDate: Date
 }> {
+  const user = await ensureUserExists()
+
   const progressCard = await prisma.progressCard.findUnique({
-    where: { id: progressCardId },
+    where: { id: progressCardId, profile: { userId: user.id } },
     select: { flashcardId: true, firstReviewAt: true },
   })
 
   if (!progressCard) {
-    throw new Error("ProgressCard não encontrado")
+    throw new Error("ProgressCard não encontrado ou não pertence a este usuário")
   }
 
   if (progressCard.firstReviewAt) {
@@ -286,7 +295,7 @@ export async function submitFirstReview(
     prisma.flashcardReview.create({
       data: {
         flashcardId: progressCard.flashcardId,
-        userId,
+        userId: user.id,
         date: now,
         quality: 3,
         difficultyLevel: "MEDIUM",
@@ -325,6 +334,7 @@ interface CreateCycleParams {
   classification: DifficultyStage
   feedback: string | null
   flashcardId: string
+  /** Sempre derivado da sessão (ensureUserExists), nunca do cliente. */
   userId: string
   studentAnswer: string
 }
@@ -431,12 +441,14 @@ async function createCycleInternal(params: CreateCycleParams): Promise<CycleCrea
 export async function classifyAndCreateCycle(
   progressCardId: string,
   studentAnswer: string,
-  userId: string,
   manualDifficulty?: DifficultyStage,
   precomputed?: AIEvaluation
 ): Promise<CycleCreationResult> {
+  const user = await ensureUserExists()
+  await requireActiveSubscriptionForAction()
+
   const progressCard = await prisma.progressCard.findUnique({
-    where: { id: progressCardId },
+    where: { id: progressCardId, profile: { userId: user.id } },
     include: {
       flashcard: { select: { id: true, front: true, back: true } },
       reviewCycles: {
@@ -448,7 +460,7 @@ export async function classifyAndCreateCycle(
   })
 
   if (!progressCard) {
-    throw new Error("ProgressCard não encontrado")
+    throw new Error("ProgressCard não encontrado ou não pertence a este usuário")
   }
 
   if (progressCard.reviewCycles.length > 0) {
@@ -461,7 +473,6 @@ export async function classifyAndCreateCycle(
       progressCard.flashcard.front,
       progressCard.flashcard.back,
       studentAnswer,
-      userId,
       manualDifficulty
     ))
 
@@ -471,7 +482,7 @@ export async function classifyAndCreateCycle(
     classification: difficulty,
     feedback,
     flashcardId: progressCard.flashcard.id,
-    userId,
+    userId: user.id,
     studentAnswer,
   })
 }
@@ -481,14 +492,16 @@ export async function classifyAndCreateCycle(
  * cronograma foram decididos na classificação e permanecem congelados. Marca a
  * ScheduledReview atual como concluída e avança `currentReview`. Ao completar a
  * última, finaliza o ciclo (`COMPLETED`) e libera a renovação.
+ * O FlashcardReview é gravado SEMPRE em nome do usuário autenticado.
  */
 export async function completeCycleReview(
   progressCardId: string,
-  studentAnswer?: string,
-  userId?: string
+  studentAnswer?: string
 ): Promise<CycleReviewResult> {
+  const user = await ensureUserExists()
+
   const progressCard = await prisma.progressCard.findUnique({
-    where: { id: progressCardId },
+    where: { id: progressCardId, profile: { userId: user.id } },
     include: {
       flashcard: { select: { id: true } },
       reviewCycles: {
@@ -503,7 +516,7 @@ export async function completeCycleReview(
   })
 
   if (!progressCard) {
-    throw new Error("ProgressCard não encontrado")
+    throw new Error("ProgressCard não encontrado ou não pertence a este usuário")
   }
 
   const cycle = progressCard.reviewCycles[0]
@@ -587,23 +600,21 @@ export async function completeCycleReview(
     )
   }
 
-  if (userId) {
-    ops.push(
-      prisma.flashcardReview.create({
-        data: {
-          flashcardId: progressCard.flashcard.id,
-          userId,
-          date: now,
-          quality: classificationToRating(cycle.classification),
-          difficultyLevel: cycle.classification,
-          userAnswer: studentAnswer?.slice(0, 2000) || null,
-          aiEvaluation: null,
-          source: "SCHEDULED",
-          cycleId: cycle.id,
-        },
-      })
-    )
-  }
+  ops.push(
+    prisma.flashcardReview.create({
+      data: {
+        flashcardId: progressCard.flashcard.id,
+        userId: user.id,
+        date: now,
+        quality: classificationToRating(cycle.classification),
+        difficultyLevel: cycle.classification,
+        userAnswer: studentAnswer?.slice(0, 2000) || null,
+        aiEvaluation: null,
+        source: "SCHEDULED",
+        cycleId: cycle.id,
+      },
+    })
+  )
 
   await prisma.$transaction(ops)
 
@@ -632,12 +643,14 @@ export async function completeCycleReview(
 export async function renewReviewCycle(
   progressCardId: string,
   studentAnswer: string,
-  userId: string,
   manualDifficulty?: DifficultyStage,
   precomputed?: AIEvaluation
 ): Promise<CycleCreationResult> {
+  const user = await ensureUserExists()
+  await requireActiveSubscriptionForAction()
+
   const progressCard = await prisma.progressCard.findUnique({
-    where: { id: progressCardId },
+    where: { id: progressCardId, profile: { userId: user.id } },
     include: {
       flashcard: { select: { id: true, front: true, back: true } },
       reviewCycles: {
@@ -649,7 +662,7 @@ export async function renewReviewCycle(
   })
 
   if (!progressCard) {
-    throw new Error("ProgressCard não encontrado")
+    throw new Error("ProgressCard não encontrado ou não pertence a este usuário")
   }
 
   if (progressCard.reviewCycles.length > 0) {
@@ -662,7 +675,6 @@ export async function renewReviewCycle(
       progressCard.flashcard.front,
       progressCard.flashcard.back,
       studentAnswer,
-      userId,
       manualDifficulty
     ))
 
@@ -672,7 +684,7 @@ export async function renewReviewCycle(
     classification: difficulty,
     feedback,
     flashcardId: progressCard.flashcard.id,
-    userId,
+    userId: user.id,
     studentAnswer,
   })
 }
@@ -681,7 +693,32 @@ export async function ensureProgressCardsForFlashcards(
   profileId: string,
   flashcardIds: string[]
 ) {
+  const user = await ensureUserExists()
+
+  const profile = await prisma.profile.findUnique({
+    where: { id: profileId, userId: user.id },
+    select: { id: true },
+  })
+
+  if (!profile) {
+    throw new Error("Perfil não encontrado ou não pertence a este usuário")
+  }
+
   if (!flashcardIds.length) return []
+
+  // Propriedade dos cards: nenhum ProgressCard pode ser criado para um
+  // flashcard de outro usuário (nem para um id inexistente).
+  const ownedCards = await prisma.flashcard.findMany({
+    where: { id: { in: flashcardIds }, deck: { userId: user.id } },
+    select: { id: true },
+  })
+  const ownedIds = new Set(ownedCards.map((c) => c.id))
+  const foreignIds = flashcardIds.filter((id) => !ownedIds.has(id))
+  if (foreignIds.length > 0) {
+    throw new Error(
+      "Um ou mais flashcards não foram encontrados ou não pertencem a este usuário"
+    )
+  }
 
   const existingProgress = await prisma.progressCard.findMany({
     where: {

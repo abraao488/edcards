@@ -82,7 +82,6 @@ export default async function FlashcardsPage({
       return (
         <FlashcardsReviewView
           initialProgressCards={formattedCards}
-          userId={dbUser.id}
           email={dbUser.email}
           pomodoroMin={settings?.pomodoroMin ?? 25}
           initialQueueCount={queueCount}
@@ -104,7 +103,6 @@ export default async function FlashcardsPage({
       return (
         <FlashcardsReviewView
           initialProgressCards={formattedCards}
-          userId={dbUser.id}
           email={dbUser.email}
           pomodoroMin={settings?.pomodoroMin ?? 25}
           initialQueueCount={queueCount}
@@ -144,7 +142,6 @@ export default async function FlashcardsPage({
     return (
       <FlashcardsReviewView
         initialProgressCards={formattedCards}
-        userId={dbUser.id}
         email={dbUser.email}
         pomodoroMin={settings?.pomodoroMin ?? 25}
         initialQueueCount={queueCount}
@@ -161,7 +158,6 @@ export default async function FlashcardsPage({
   return (
     <FlashcardsReviewView
       initialProgressCards={formattedCards}
-      userId={dbUser.id}
       email={dbUser.email}
       pomodoroMin={settings?.pomodoroMin ?? 25}
       initialQueueCount={queueCount}
