@@ -30,6 +30,15 @@ export async function deleteDeck(id: string) {
 
 export async function createFlashcard(deckId: string, formData: FormData) {
   const user = await ensureUserExists()
+
+  // O deck precisa pertencer ao usuário logado; sem isso qualquer um poderia
+  // gravar cards em decks alheios bastando chamar a action com o id certo.
+  const ownedDeck = await prisma.deck.findFirst({
+    where: { id: deckId, userId: user.id },
+    select: { id: true },
+  })
+  if (!ownedDeck) throw new Error("Deck não encontrado")
+
   const activeProfile = await getOrCreateActiveProfile(user.id, user.email || "")
 
   const topicId = (formData.get("topicId") as string) || undefined

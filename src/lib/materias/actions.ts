@@ -53,7 +53,9 @@ export async function getSubjectsWithTopicCounts(
   }))
 }
 
-export async function getTopicFlashcardsForQuiz(userId: string, topicId: string) {
+export async function getTopicFlashcardsForQuiz(topicId: string) {
+  const user = await ensureUserExists()
+
   const topic = await prisma.topic.findUnique({
     where: { id: topicId },
     include: { subject: true },
@@ -64,7 +66,7 @@ export async function getTopicFlashcardsForQuiz(userId: string, topicId: string)
   const flashcards = await prisma.flashcard.findMany({
     where: {
       topicId,
-      deck: { userId },
+      deck: { userId: user.id },
     },
     include: {
       topic: {

@@ -1,9 +1,15 @@
-"use server"
-
 import { redirect } from "next/navigation"
 import { ensureUserExists } from "@/lib/auth/sync"
 import { prisma } from "@/lib/prisma"
 
+/**
+ * Guards de assinatura — funções NORMAIS de servidor, não Server Actions.
+ *
+ * Este arquivo não tem "use server" de propósito: todas as funções exportadas
+ * de um arquivo "use server" viram endpoints RPC públicos no client bundle.
+ * Aqui só há lógica interna de leitura/validação, chamada por Server
+ * Components (layouts) e por outras Server Actions — nunca pelo client.
+ */
 async function resolveActiveUser() {
   const user = await ensureUserExists()
 

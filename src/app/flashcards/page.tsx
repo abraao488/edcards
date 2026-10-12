@@ -93,7 +93,7 @@ export default async function FlashcardsPage({
 
   // Revisão por assunto específico — sempre em modo real (isQuizMode=false, com SRS + IA)
   if (topicId) {
-    const result = await getTopicFlashcardsForQuiz(dbUser.id, topicId)
+    const result = await getTopicFlashcardsForQuiz(topicId)
 
     if (!result || result.flashcards.length === 0) {
       // Sem flashcards para o assunto: cai no comportamento padrão (fila)
