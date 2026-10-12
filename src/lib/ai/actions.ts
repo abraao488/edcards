@@ -5,6 +5,12 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 import { sanitizeHtml } from "@/lib/sanitize"
+import {
+  AI_DAILY_LIMIT,
+  AI_QUOTA_EXCEEDED_MESSAGE,
+  getAiQuotaUsed,
+  incrementAiQuota,
+} from "@/lib/ai/limit"
 
 export interface GeneratedFlashcard {
   front: string
@@ -35,8 +41,6 @@ export interface InjectFlashcardsResult {
   uncategorizedCards: ClassifiedFlashcard[]
 }
 
-const AI_DAILY_LIMIT = 20
-
 /**
  * Gera flashcards (entre 3 e 10) a partir de um texto/material enviado pelo usuário,
  * usando a Groq AI (mesmo modelo usado em evaluateAnswerWithAI, em src/lib/srs.ts).
@@ -49,29 +53,9 @@ export async function generateFlashcardsFromText(
   // 0. Controle diário de gerações por IA
   const authUser = await requireActiveSubscriptionForAction()
 
-  const now = new Date()
-  const startOfToday = new Date(now)
-  startOfToday.setHours(0, 0, 0, 0)
-
-  const settings = await prisma.userSettings.upsert({
-    where: { userId: authUser.id },
-    create: { userId: authUser.id },
-    update: {},
-  })
-
-  if (settings.aiGenerationsResetAt < startOfToday) {
-    await prisma.userSettings.update({
-      where: { userId: authUser.id },
-      data: { aiGenerationsToday: 0, aiGenerationsResetAt: now },
-    })
-    settings.aiGenerationsToday = 0
-    settings.aiGenerationsResetAt = now
-  }
-
-  if (settings.aiGenerationsToday >= AI_DAILY_LIMIT) {
-    throw new Error(
-      "Você atingiu o limite diário de gerações por IA. Tente novamente amanhã."
-    )
+  const usedToday = await getAiQuotaUsed(authUser.id)
+  if (usedToday >= AI_DAILY_LIMIT) {
+    throw new Error(AI_QUOTA_EXCEEDED_MESSAGE)
   }
 
   // 1. Validações de entrada e configuração
@@ -144,10 +128,7 @@ Retorne estritamente um JSON estruturado como:
     }
 
     // Só conta como geração quando a Groq API retorna com sucesso
-    await prisma.userSettings.update({
-      where: { userId: authUser.id },
-      data: { aiGenerationsToday: { increment: 1 } },
-    })
+    await incrementAiQuota(authUser.id)
 
     const data = await response.json()
     rawContent = data.choices?.[0]?.message?.content || ""
@@ -433,6 +414,13 @@ export async function injectFlashcardsToDatabase(
   const subjectsContext = await getUserSubjectsWithTopics(user.id)
   const apiKey = process.env.GROQ_API_KEY || ""
 
+  // Limite diário de IA: cada chamada de classificação consome 1 unidade da
+  // cota do usuário. Quando a cota estoura, os cards restantes são salvos como
+  // "sem categoria" (o usuário classifica manualmente) — a gravação não é
+  // bloqueada, mas o consumo de API é limitado.
+  const canClassify = Boolean(apiKey) && subjectsContext.length > 0
+  let usedToday = canClassify ? await getAiQuotaUsed(user.id) : AI_DAILY_LIMIT
+
   const classifiedCards: ClassifiedFlashcard[] = []
 
   for (const card of cards) {
@@ -442,8 +430,12 @@ export async function injectFlashcardsToDatabase(
       uncategorized: true,
     }
 
-    if (apiKey && subjectsContext.length > 0) {
+    if (canClassify && usedToday < AI_DAILY_LIMIT) {
       classification = await classifyFlashcard(card, subjectsContext, apiKey)
+      usedToday += 1
+      // Conta como uso mesmo se a chamada falhar por rede — mais conservador
+      // para o controle de custo.
+      await incrementAiQuota(user.id)
     }
 
     classifiedCards.push({

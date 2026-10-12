@@ -69,9 +69,14 @@ export async function updateQuizModePreference(value: boolean) {
   return { success: true };
 }
 
-export async function getStudyTimeStats(userId: string) {
+export async function getStudyTimeStats() {
+  // A identidade NUNCA vem do cliente: deriva sempre da sessão autenticada.
+  // Antes aceitava um userId arbitrário, o que permitia ler o histórico de
+  // estudo de qualquer usuário (IDOR de leitura).
+  const user = await ensureUserExists();
+
   const studySessions = await prisma.studySession.findMany({
-    where: { userId },
+    where: { userId: user.id },
     include: { subject: true, topic: true },
     orderBy: { createdAt: "desc" },
   });

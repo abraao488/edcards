@@ -78,6 +78,18 @@ export async function createFlashcard(deckId: string, formData: FormData) {
     }
   }
 
+  // O assunto (topic) também precisa pertencer ao usuário logado — validar só o
+  // deck permitiria inserir cards em matérias de outras pessoas, já que o
+  // topicId vem direto do cliente. Mensagem igual à de "não existe" evita
+  // enumeração de ids alheios.
+  if (topicId) {
+    const ownedTopic = await prisma.topic.findFirst({
+      where: { id: topicId, subject: { userId: user.id } },
+      select: { id: true },
+    })
+    if (!ownedTopic) throw new Error("Assunto não encontrado")
+  }
+
   await prisma.$transaction(async (tx) => {
     // nextOrder scoped by topicId if present, else by deckId
     const maxOrder = await tx.flashcard.aggregate({

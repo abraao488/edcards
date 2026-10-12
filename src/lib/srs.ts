@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
 import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
+import { AI_DAILY_LIMIT, getAiQuotaUsed, incrementAiQuota } from "@/lib/ai/limit"
 import {
   buildReviewSchedule,
   classificationToRating,
@@ -104,9 +105,23 @@ export async function evaluateAnswerWithAI(
     Sentry.captureException(err, { tags: { source: "srs/user-settings" } })
   }
 
-  // 3. Avaliação semântica via Groq API
+  // 3. Limite diário de chamadas à IA (mesmo controle das gerações de cards).
+  //    Se a cota do dia já estourou, pula a Groq e cai direto no fallback
+  //    local de similaridade — a revisão nunca é interrompida.
   const apiKey = process.env.GROQ_API_KEY
+  let quotaExceeded = true
   if (apiKey) {
+    try {
+      quotaExceeded = (await getAiQuotaUsed(user.id)) >= AI_DAILY_LIMIT
+    } catch (err) {
+      // Falha ao ler a cota: não abre a IA (fail closed), apenas usa o fallback.
+      console.error("Erro ao ler cota de IA:", err)
+      Sentry.captureException(err, { tags: { source: "srs/ai-quota" } })
+    }
+  }
+
+  // 4. Avaliação semântica via Groq API
+  if (apiKey && !quotaExceeded) {
     try {
       const response = await fetch(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -148,6 +163,9 @@ Retorne estritamente um JSON estruturado como:
       )
 
       if (response.ok) {
+        // Consome 1 unidade da cota diária só quando a chamada teve sucesso
+        await incrementAiQuota(user.id)
+
         const data = await response.json()
         const rawContent = data.choices?.[0]?.message?.content || "{}"
         let result: { difficulty?: string; feedback?: string } = {}
@@ -178,7 +196,7 @@ Retorne estritamente um JSON estruturado como:
     }
   }
 
-  // 4. Fallback local: Similaridade de Jaccard
+  // 5. Fallback local: Similaridade de Jaccard
   const normalizedUser = normalizeText(studentAnswer)
   const normalizedCorrect = normalizeText(correctAnswer)
   const similarity = calculateSimilarity(normalizedUser, normalizedCorrect)

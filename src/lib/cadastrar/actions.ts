@@ -51,8 +51,13 @@ export async function createFlashcardWithTopic(
     throw new Error("Selecione um assunto.")
   }
 
-  const topic = await prisma.topic.findUnique({
-    where: { id: topicId },
+  // O tópico precisa pertencer a uma matéria do usuário logado (subject.userId);
+  // validar apenas a existência permitiria gravar cards no assunto de outra
+  // pessoa bastando chamar a action com o id certo. A mensagem é a mesma para
+  // "não existe" e "não é seu" para não permitir enumeração de ids.
+  const topic = await prisma.topic.findFirst({
+    where: { id: topicId, subject: { userId: user.id } },
+    select: { id: true },
   })
   if (!topic) {
     throw new Error("Assunto não encontrado.")
