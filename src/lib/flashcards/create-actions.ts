@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 import { getOrCreateActiveProfile } from "@/lib/profile/helpers"
 import { createFlashcardWithTopic } from "@/lib/cadastrar/actions"
 import { sanitizeHtml, stripHtml } from "@/lib/sanitize"
@@ -13,6 +14,7 @@ export async function createCardWithSubject(
   topicId?: string,
   cardType: "BASIC" | "REVERSED" | "CLOZE" = "BASIC"
 ) {
+  await requireActiveSubscriptionForAction()
   if (topicId) {
     await createFlashcardWithTopic(front, back, topicId, cardType)
     return
@@ -156,6 +158,7 @@ export async function createCardWithSubject(
 export async function createBulkFlashcards(
   cards: { front: string; back: string; topicId?: string; cardType?: "BASIC" | "REVERSED" | "CLOZE" }[]
 ) {
+  await requireActiveSubscriptionForAction()
   for (const card of cards) {
     if (card.topicId) {
       await createFlashcardWithTopic(card.front, card.back, card.topicId, card.cardType || "BASIC")

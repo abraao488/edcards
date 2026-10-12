@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 
 export interface TopicWithFlashcardCount {
   id: string
@@ -21,8 +22,11 @@ export interface SubjectWithTopicsAndCounts {
 export async function getSubjectsWithTopicCounts(
   userId: string
 ): Promise<SubjectWithTopicsAndCounts[]> {
+  // A identidade NUNCA vem do cliente: deriva da sessão autenticada.
+  // O parâmetro `userId` é mantido por compatibilidade de assinatura, mas ignorado.
+  const user = await requireActiveSubscriptionForAction()
   const subjects = await prisma.subject.findMany({
-    where: { userId },
+    where: { userId: user.id },
     include: {
       topics: {
         orderBy: { order: "asc" },
@@ -31,7 +35,7 @@ export async function getSubjectsWithTopicCounts(
             select: {
               flashcards: {
                 where: {
-                  deck: { userId },
+                  deck: { userId: user.id },
                 },
               },
             },
@@ -54,6 +58,7 @@ export async function getSubjectsWithTopicCounts(
 }
 
 export async function getTopicFlashcardsForQuiz(topicId: string) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   const topic = await prisma.topic.findUnique({
@@ -80,6 +85,7 @@ export async function getTopicFlashcardsForQuiz(topicId: string) {
 }
 
 export async function updateSubjectOrder(items: { id: string; order: number }[]) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
   if (!Array.isArray(items) || items.length === 0) return { success: true }
   // valida que todos os ids pertencem ao user antes de aplicar
@@ -104,10 +110,12 @@ export async function updateSubjectOrder(items: { id: string; order: number }[])
 
 // alias exigido pelo prompt: updateOrder(items: {id, order}[])
 export async function updateOrder(items: { id: string; order: number }[]) {
+  await requireActiveSubscriptionForAction()
   return updateSubjectOrder(items)
 }
 
 export async function updateTopicOrder(items: { id: string; order: number }[]) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
   if (!Array.isArray(items) || items.length === 0) return { success: true }
   const ids = items.map((i) => i.id)

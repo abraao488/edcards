@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
+import { requireActiveSubscriptionForPage } from "@/lib/subscription/guard"
 import { Sidebar } from "@/components/sidebar"
 import { GerenciadorClient } from "./client"
 import { getUpcomingFlashcards } from "@/lib/flashcards/upcoming-actions"
@@ -16,6 +17,11 @@ export default async function GerenciadorPage() {
   if (!user) {
     redirect("/login")
   }
+
+  // Recurso premium: o Gerenciador chama getUpcomingFlashcards() no render,
+  // que agora exige assinatura ativa. Redireciona para upgrade em vez de
+  // deixar a Server Action lançar erro durante o render.
+  await requireActiveSubscriptionForPage()
 
   const [dbUser, settings, upcomingCards, studyHistory] = await Promise.all([
     prisma.user.findUnique({

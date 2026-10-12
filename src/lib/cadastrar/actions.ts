@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 import { getOrCreateActiveProfile } from "@/lib/profile/helpers"
 import { sanitizeHtml, stripHtml } from "@/lib/sanitize"
 
@@ -12,6 +13,7 @@ export async function createFlashcardWithTopic(
   topicId: string,
   cardType: "BASIC" | "REVERSED" | "CLOZE" = "BASIC"
 ): Promise<{ success: true }> {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   const sanitizedFront = sanitizeHtml(front)

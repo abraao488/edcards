@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 
 export async function uploadDocument(formData: FormData) {
+  await requireActiveSubscriptionForAction()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error("Not authenticated")
@@ -40,6 +42,7 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function deleteDocument(id: string) {
+  await requireActiveSubscriptionForAction()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error("Not authenticated")

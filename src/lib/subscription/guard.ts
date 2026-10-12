@@ -78,3 +78,17 @@ export async function requireActiveSubscriptionForAction() {
 export async function requireActiveSubscription() {
   return requireActiveSubscriptionForAction()
 }
+
+/**
+ * Checagem NÃO bloqueante de assinatura ativa. Nunca lança erro nem redireciona.
+ * Usado onde a experiência precisa de degradação graciosa (ex.: dashboard
+ * renderiza com dados zerados para quem ainda não assinou, em vez de tela de erro).
+ */
+export async function hasActiveSubscription(): Promise<boolean> {
+  try {
+    return (await resolveActiveUser()) !== null
+  } catch {
+    // sem sessão / erro de infra: trata como "sem assinatura ativa"
+    return false
+  }
+}

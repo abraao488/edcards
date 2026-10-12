@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureUserExists } from "@/lib/auth/sync";
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard";
 import { getOrCreateActiveProfile } from "@/lib/profile/helpers";
 
 export async function saveStudySession(
@@ -11,6 +12,7 @@ export async function saveStudySession(
   minutes: number,
   options?: { name?: string | null; startedAt?: Date | null; endedAt?: Date | null }
 ) {
+  await requireActiveSubscriptionForAction();
   const user = await ensureUserExists();
 
   if (minutes <= 0) {
@@ -42,6 +44,7 @@ export async function saveStudySession(
 }
 
 export async function getStudySessionsHistory() {
+  await requireActiveSubscriptionForAction();
   const user = await ensureUserExists();
 
   const sessions = await prisma.studySession.findMany({
@@ -54,6 +57,7 @@ export async function getStudySessionsHistory() {
 }
 
 export async function updateQuizModePreference(value: boolean) {
+  await requireActiveSubscriptionForAction();
   const user = await ensureUserExists();
 
   await prisma.userSettings.upsert({
@@ -73,6 +77,7 @@ export async function getStudyTimeStats() {
   // A identidade NUNCA vem do cliente: deriva sempre da sessão autenticada.
   // Antes aceitava um userId arbitrário, o que permitia ler o histórico de
   // estudo de qualquer usuário (IDOR de leitura).
+  await requireActiveSubscriptionForAction();
   const user = await ensureUserExists();
 
   const studySessions = await prisma.studySession.findMany({
@@ -128,6 +133,7 @@ export async function scheduleTopicReviews(
   topicId: string,
   scheduleType: "standard" | "intensive" | "custom"
 ) {
+  await requireActiveSubscriptionForAction();
   const user = await ensureUserExists();
   const activeProfile = await getOrCreateActiveProfile(user.id, user.email || "");
 
@@ -187,6 +193,7 @@ export async function scheduleTopicReviews(
 }
 
 export async function deleteStudySession(sessionId: string) {
+  await requireActiveSubscriptionForAction();
   const user = await ensureUserExists();
 
   const existing = await prisma.studySession.findFirst({

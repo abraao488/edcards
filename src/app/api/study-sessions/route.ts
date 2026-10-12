@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 
 export async function POST(request: Request) {
   try {
@@ -10,6 +11,18 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Recurso premium: registrar tempo de estudo exige assinatura ativa.
+    // Diferente das Server Actions, aqui retornamos 402 em vez de lançar erro,
+    // para que o beacon do client falhe silenciosamente.
+    try {
+      await requireActiveSubscriptionForAction()
+    } catch {
+      return NextResponse.json(
+        { error: "Subscription required" },
+        { status: 402 }
+      )
     }
 
     let subjectId: string | null = null

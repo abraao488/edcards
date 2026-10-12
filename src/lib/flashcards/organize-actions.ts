@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 
 export async function organizeOverdueCards() {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   // Get active profile

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 import { queueFilterWithoutCompletedOnly } from "@/lib/srs-review-utils"
 
 async function getActiveProfileId(): Promise<string | null> {
@@ -18,6 +19,7 @@ async function getActiveProfileId(): Promise<string | null> {
 }
 
 export async function getUpcomingFlashcards() {
+  await requireActiveSubscriptionForAction()
   const profileId = await getActiveProfileId()
   if (!profileId) return []
 
@@ -48,6 +50,7 @@ export async function getUpcomingFlashcards() {
 // Contagem compacta da fila de hoje — reaproveita mesma base (activeProfile + progressCard)
 // usada pelo Gerenciador. Retorna quantos cards ainda faltam com nextReviewDate vencido.
 export async function getReviewQueueCount(): Promise<number> {
+  await requireActiveSubscriptionForAction()
   const profileId = await getActiveProfileId()
   if (!profileId) return 0
 

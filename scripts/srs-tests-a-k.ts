@@ -469,7 +469,9 @@ async function main() {
     })
     const expectedKeys = new Set(schedRows.map((s) => dateStr(s.scheduleDate)))
 
-    const calendar = await getRevisionCalendarForUser(world.userId, days)
+    // Sessão mockada = world.userId; a action deriva a identidade dela
+    // (mesmo fluxo de produção via ensureUserExists).
+    const calendar = await getRevisionCalendarForUser(days)
 
     // Todas as revisões futuras do cronograma completo estão no calendário
     for (const key of Array.from(expectedKeys)) {

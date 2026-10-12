@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 import type { ScheduleItem, Subject, Topic, StudySchedule } from "@prisma/client"
 
 type ScheduleItemWithRelations = ScheduleItem & {
@@ -22,6 +23,7 @@ export async function generateReverseSchedule(
   examDate: Date,
   reviewDays: number
 ) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   // Get all topics for scheduling
@@ -122,6 +124,7 @@ export async function generateReverseSchedule(
 export async function getScheduleWithDetails(
   scheduleId: string
 ): Promise<ScheduleWithDetails> {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   const schedule = await prisma.studySchedule.findFirst({
@@ -173,6 +176,7 @@ export async function getScheduleWithDetails(
 }
 
 export async function getSchedules() {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   return prisma.studySchedule.findMany({
@@ -187,6 +191,7 @@ export async function getSchedules() {
 }
 
 export async function markScheduleItemCompleted(itemId: string) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   const item = await prisma.scheduleItem.findUnique({

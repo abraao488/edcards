@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { hasActiveSubscription } from "@/lib/subscription/guard"
 import {
   queueFilterWithoutCompletedOnly,
   startOfDay,
@@ -20,6 +21,26 @@ export type RevisionCalendar = Record<string, Array<RevisionCalendarEntry>>
 
 export async function getDashboardMetrics() {
   const user = await ensureUserExists()
+
+  // Degradação graciosa: sem assinatura ativa o dashboard continua renderizando,
+  // mas com as métricas de estudo premium zeradas — serve como incentivo visual
+  // para assinar. subjectsCount fica REAL, pois matérias são free tier.
+  // NUNCA lança erro aqui (é chamada no render de /dashboard).
+  if (!(await hasActiveSubscription())) {
+    const subjectsCount = await prisma.subject.count({
+      where: { userId: user.id },
+    })
+    return {
+      concurrence: null,
+      avatarUrl: null,
+      name: user.email || "Usuário",
+      email: user.email || "",
+      cardsToday: 0,
+      overdueCards: 0,
+      streak: 0,
+      subjectsCount,
+    }
+  }
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -207,8 +228,9 @@ async function calculateStreak(userId: string): Promise<number> {
 }
 
 export async function getRevisionCalendar(days?: number): Promise<RevisionCalendar> {
-  const user = await ensureUserExists()
-  return getRevisionCalendarForUser(user.id, days)
+  // Degradação graciosa (sem assinatura → {}) é garantida dentro de
+  // getRevisionCalendarForUser — aqui só delegamos.
+  return getRevisionCalendarForUser(days)
 }
 
 /**
@@ -217,6 +239,10 @@ export async function getRevisionCalendar(days?: number): Promise<RevisionCalend
  * revisão de cards que ainda não possuem ciclo (1ª/2ª resolução). A última
  * revisão do ciclo chega destacada com isFinal = true.
  *
+ * A identidade NUNCA vem do cliente: deriva sempre da sessão autenticada
+ * (mesmo padrão das demais correções de IDOR). Antes aceitava um userId
+ * arbitrário, o que permitia ler o calendário de qualquer usuário.
+ *
  * A busca considera todas as datas a partir de hoje (sem teto), para que o
  * calendário seja capaz de marcar qualquer dia de qualquer mês futuro que o
  * usuário navegar. O parâmetro `days`, quando informado, apenas limita o
@@ -224,9 +250,16 @@ export async function getRevisionCalendar(days?: number): Promise<RevisionCalend
  * Prisma, então por padrão são buscadas todas as revisões futuras.
  */
 export async function getRevisionCalendarForUser(
-  userId: string,
   days?: number
 ): Promise<RevisionCalendar> {
+  // Degradação graciosa: sem assinatura ativa retorna calendário vazio,
+  // mesmo comportamento do Dashboard — garantido AQUI na função, não só no
+  // chamador, para valer também quando a action é chamada diretamente via RPC.
+  if (!(await hasActiveSubscription())) {
+    return {}
+  }
+
+  const user = await ensureUserExists()
   const today = startOfDay(new Date())
   const endDate = days ? addDays(today, days) : undefined
 
@@ -248,7 +281,7 @@ export async function getRevisionCalendarForUser(
   const [progressCards, scheduledReviews] = await Promise.all([
     prisma.progressCard.findMany({
       where: {
-        profile: { userId },
+        profile: { userId: user.id },
         nextReviewDate: { gte: today, lte: endDate },
         // cards sem ciclo (1ª/2ª resolução pendente): usam nextReviewDate
         reviewCycles: { none: {} },
@@ -261,7 +294,7 @@ export async function getRevisionCalendarForUser(
         scheduleDate: { gte: today, lte: endDate },
         cycle: {
           status: "ACTIVE",
-          progressCard: { profile: { userId } },
+          progressCard: { profile: { userId: user.id } },
         },
       },
       select: { scheduleDate: true, isFinal: true, ...cardSelect },

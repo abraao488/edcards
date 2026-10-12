@@ -3,11 +3,13 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
+import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
 import { getOrCreateActiveProfile } from "@/lib/profile/helpers"
 import { sanitizeHtml, stripHtml } from "@/lib/sanitize"
 
 
 export async function createDeck(formData: FormData) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   await prisma.deck.create({
@@ -22,6 +24,7 @@ export async function createDeck(formData: FormData) {
 }
 
 export async function deleteDeck(id: string) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   await prisma.deck.deleteMany({ where: { id, userId: user.id } })
@@ -29,6 +32,7 @@ export async function deleteDeck(id: string) {
 }
 
 export async function createFlashcard(deckId: string, formData: FormData) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   // O deck precisa pertencer ao usuário logado; sem isso qualquer um poderia
@@ -182,6 +186,7 @@ export async function createFlashcard(deckId: string, formData: FormData) {
  * validando pertencimento ao user via deck.userId ou topic.subject.userId
  */
 export async function getFlashcardsByTopic(topicId: string) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   const topic = await prisma.topic.findFirst({
@@ -223,6 +228,7 @@ export async function getFlashcardsByTopic(topicId: string) {
 }
 
 export async function updateFlashcardOrder(items: { id: string; order: number }[]) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
   if (!Array.isArray(items) || items.length === 0) return { success: true as const }
   const ids = items.map((i) => i.id)
@@ -249,6 +255,7 @@ export async function updateFlashcardOrder(items: { id: string; order: number }[
  * Validação: where: { id, deck: { userId } }
  */
 export async function updateFlashcard(id: string, front: string, back: string) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   const sanitizedFront = sanitizeHtml(front).trim()
@@ -284,6 +291,7 @@ export async function updateFlashcard(id: string, front: string, back: string) {
 // Mantido para compatibilidade com chamadas existentes (2 args)
 // Nova assinatura individual: deleteFlashcard(id) também é suportada via overload opcional
 export async function deleteFlashcard(id: string, deckId?: string) {
+  await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
   const existing = await prisma.flashcard.findFirst({
