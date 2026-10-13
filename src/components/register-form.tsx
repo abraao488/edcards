@@ -94,6 +94,39 @@ export function RegisterForm() {
             placeholder="Ex: Polícia Militar do Alagoas"
           />
         </div>
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-secondary/40 p-3">
+          <input
+            id="acceptTerms"
+            name="acceptTerms"
+            type="checkbox"
+            required
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+          />
+          <label
+            htmlFor="acceptTerms"
+            className="text-xs leading-relaxed text-muted-foreground"
+          >
+            Li e concordo com os{" "}
+            <Link
+              href="/termos"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary hover:underline"
+            >
+              Termos de Uso
+            </Link>{" "}
+            e com a{" "}
+            <Link
+              href="/privacidade"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary hover:underline"
+            >
+              Política de Privacidade
+            </Link>
+            .
+          </label>
+        </div>
         {confirmError && (
           <p className="text-sm text-destructive">{confirmError}</p>
         )}

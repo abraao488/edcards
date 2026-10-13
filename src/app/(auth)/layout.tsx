@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { SiteFooter } from "@/components/site-footer"
 
 export const metadata: Metadata = {
   title: "Edcards - Login",
@@ -11,8 +12,9 @@ export default function AuthLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      {children}
+    <div className="flex min-h-screen flex-col">
+      <div className="flex flex-1 items-center justify-center p-4">{children}</div>
+      <SiteFooter />
     </div>
   )
 }

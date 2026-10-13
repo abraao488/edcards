@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { Brain, Sparkles, CalendarDays, GraduationCap } from "lucide-react"
+import { SiteFooter } from "@/components/site-footer"
 
 const benefits = [
   {
@@ -137,14 +138,7 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border px-4 py-8 text-center sm:px-6">
-        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-3 text-xs text-muted-foreground sm:flex-row">
-          <span className="inline-flex items-center gap-2">
-            <Brain className="h-4 w-4 text-primary/70" aria-hidden="true" /> Edcards
-          </span>
-          <span>&copy; {new Date().getFullYear()} Edcards. Todos os direitos reservados.</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   )
 }

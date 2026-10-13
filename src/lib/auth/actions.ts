@@ -1,6 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -13,9 +14,29 @@ import {
 } from "@/lib/rate-limit"
 
 type AuthState = { error?: string } | undefined
+type ResetState = { error?: string; success?: boolean } | undefined
 
 const RATE_LIMIT_MESSAGE =
   "Muitas tentativas. Aguarde alguns minutos e tente novamente."
+
+/**
+ * Origem pública do app, usada como base do link de redefinição de senha.
+ * Prioriza NEXT_PUBLIC_SITE_URL; caso ausente, deriva dos headers da request.
+ */
+async function getSiteOrigin(): Promise<string> {
+  const configured = (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    ""
+  ).replace(/\/+$/, "")
+  if (configured) return configured
+
+  const h = await headers()
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000"
+  const proto =
+    h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https")
+  return `${proto}://${host}`
+}
 
 export async function login(_prevState: AuthState, formData: FormData): Promise<AuthState> {
   const supabase = await createClient()
@@ -68,6 +89,14 @@ export async function register(_prevState: AuthState, formData: FormData): Promi
   const password = formData.get("password") as string
   const concurrence = formData.get("concurrence") as string
 
+  // Aceite obrigatório dos documentos legais (regra de negócio + LGPD/CDC)
+  if (!formData.get("acceptTerms")) {
+    return {
+      error:
+        "É necessário aceitar os Termos de Uso e a Política de Privacidade para criar a conta.",
+    }
+  }
+
   // Bloqueio temporário: conta tentativas de cadastro por IP e por e-mail
   const emailKey = `register:email:${email.trim().toLowerCase()}`
   const ipKey = `register:ip:${getClientIp()}`
@@ -113,4 +142,79 @@ export async function register(_prevState: AuthState, formData: FormData): Promi
 
   revalidatePath("/dashboard")
   redirect("/bem-vindo")
+}
+
+/**
+ * Envia o e-mail de redefinição de senha usando o fluxo nativo do Supabase Auth.
+ * O link recebido aponta para /api/auth/callback (troca o código por sessão) e
+ * em seguida redireciona para /redefinir-senha.
+ */
+export async function requestPasswordReset(
+  _prevState: ResetState,
+  formData: FormData
+): Promise<ResetState> {
+  const supabase = await createClient()
+  const email = ((formData.get("email") as string) || "").trim()
+
+  if (!email) {
+    return { error: "Informe o e-mail cadastrado." }
+  }
+
+  const emailKey = `reset:email:${email.toLowerCase()}`
+  const ipKey = `reset:ip:${getClientIp()}`
+  if (isRateLimited(emailKey) || isRateLimited(ipKey)) {
+    return { error: RATE_LIMIT_MESSAGE }
+  }
+  registerFailedAttempt(emailKey, 5)
+  registerFailedAttempt(ipKey, 10)
+
+  const origin = await getSiteOrigin()
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/api/auth/callback?next=/redefinir-senha`,
+  })
+
+  // Não revelamos se o e-mail existe na base (evita enumeração de usuários).
+  if (error) {
+    console.error("[auth] Falha ao enviar e-mail de redefinição:", error.message)
+  }
+
+  return { success: true }
+}
+
+/** Define uma nova senha para o usuário autenticado via link de recuperação. */
+export async function updatePassword(
+  _prevState: ResetState,
+  formData: FormData
+): Promise<ResetState> {
+  const supabase = await createClient()
+  const password = (formData.get("password") as string) || ""
+  const confirmPassword = (formData.get("confirmPassword") as string) || ""
+
+  if (password.length < 6) {
+    return { error: "A senha deve ter ao menos 6 caracteres." }
+  }
+
+  if (password !== confirmPassword) {
+    return { error: "As senhas não coincidem." }
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return {
+      error:
+        "Sessão de redefinição inválida ou expirada. Solicite um novo link em /recuperar-senha.",
+    }
+  }
+
+  const { error } = await supabase.auth.updateUser({ password })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  revalidatePath("/dashboard")
+  redirect("/dashboard")
 }

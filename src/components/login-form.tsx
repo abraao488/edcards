@@ -44,6 +44,14 @@ export function LoginForm() {
             placeholder="••••••••"
           />
         </div>
+        <div className="flex justify-end">
+          <Link
+            href="/recuperar-senha"
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Esqueci minha senha
+          </Link>
+        </div>
         {state?.error && (
           <p className="text-sm text-destructive">{state.error}</p>
         )}
