@@ -20,10 +20,10 @@ export interface SubjectWithTopicsAndCounts {
 }
 
 export async function getSubjectsWithTopicCounts(
-  userId: string
+  _userId: string
 ): Promise<SubjectWithTopicsAndCounts[]> {
   // A identidade NUNCA vem do cliente: deriva da sessão autenticada.
-  // O parâmetro `userId` é mantido por compatibilidade de assinatura, mas ignorado.
+  // O parâmetro `_userId` é mantido por compatibilidade de assinatura, mas ignorado.
   const user = await requireActiveSubscriptionForAction()
   const subjects = await prisma.subject.findMany({
     where: { userId: user.id },

@@ -29,7 +29,28 @@ export async function subscribe() {
     where: { userId: user.id },
   })
 
-  if (existingSub) {
+  // Um Pix já pago é uma referência de acesso vigente. Nunca a sobrescreva
+  // com o ID de uma nova tentativa de cartão: isso apagaria o mercadopagoId
+  // usado pelo webhook para estorno/chargeback e rebaixaria o status para
+  // PENDING, perdendo o acesso já liberado. O checkout do cartão segue
+  // normalmente; a referência local fica com o Pix até ele expirar.
+  const hasActivePaidPix =
+    existingSub !== null &&
+    existingSub.paymentMethod === "pix" &&
+    existingSub.status === "ACTIVE" &&
+    existingSub.accessExpiresAt !== null &&
+    existingSub.accessExpiresAt > new Date()
+
+  if (existingSub && hasActivePaidPix) {
+    // Pix ativo: não mexe em mercadopagoId/status/paymentMethod/accessExpiresAt.
+    // Guarda só o preapproval do cartão em pendingMercadopagoId — quando ele
+    // for aprovado e o Pix já tiver expirado, o webhook promove essa
+    // referência para mercadopagoId (ver applyPreApprovalStatus).
+    await prisma.subscription.update({
+      where: { userId: user.id },
+      data: { pendingMercadopagoId: result.id },
+    })
+  } else if (existingSub) {
     await prisma.subscription.update({
       where: { userId: user.id },
       data: {

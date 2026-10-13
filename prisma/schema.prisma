@@ -89,6 +89,10 @@ model Subscription {
   userId          String             @unique
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   mercadopagoId   String?            @unique
+  // Preapproval de cartão criado enquanto o Pix ainda estava ativo: guarda a
+  // referência sem tocar no acesso do Pix. Promovida para mercadopagoId pelo
+  // webhook quando o preapproval for aprovado e o Pix já tiver expirado.
+  pendingMercadopagoId String?       @unique
   status          SubscriptionStatus @default(PENDING)
   plan            PlanType           @default(INDIVIDUAL)
   maxProfiles     Int                @default(1)

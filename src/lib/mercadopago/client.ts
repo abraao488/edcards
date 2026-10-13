@@ -1,5 +1,13 @@
 const MERCADOPAGO_BASE = "https://api.mercadopago.com"
 
+// URL de notificação enviada junto de cada cobrança, para não depender do
+// notification_url configurado manualmente no painel do Mercado Pago.
+function getNotificationUrl(): string | undefined {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (!baseUrl) return undefined
+  return `${baseUrl.replace(/\/+$/, "")}/api/webhooks/mercadopago`
+}
+
 interface CreateSubscriptionParams {
   payerEmail: string
   reason: string
@@ -56,6 +64,7 @@ export async function createSubscription({
         currency_id: "BRL",
       },
       back_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/configuracoes`,
+      notification_url: getNotificationUrl(),
       status: "pending",
     }),
     signal: AbortSignal.timeout(15000),
@@ -109,6 +118,7 @@ export async function createPixPayment({
       payer: {
         email: payerEmail,
       },
+      notification_url: getNotificationUrl(),
     }),
     signal: AbortSignal.timeout(30000),
   })
@@ -134,6 +144,42 @@ export async function getPayment(id: number) {
   if (!res.ok) {
     const err = await res.text()
     console.error("[MercadoPago] getPayment failed:", res.status, err)
+    throw new Error(`Mercado Pago API error: ${res.status} - ${err}`)
+  }
+
+  return res.json()
+}
+
+// Fatura de uma assinatura sem plano (preapproval): recurso que o Mercado Pago
+// retorna para o tópico `subscription_authorized_payment`. É ele que carrega o
+// `preapproval_id` e o resultado da cobrança do cartão (`payment.status`).
+export interface AuthorizedPaymentResponse {
+  id: number
+  preapproval_id?: string
+  status?: string
+  summarized?: string
+  external_reference?: string | number | null
+  payment?: {
+    id?: number
+    status?: string
+    status_detail?: string
+  } | null
+}
+
+export async function getAuthorizedPayment(
+  id: number
+): Promise<AuthorizedPaymentResponse> {
+  const res = await fetch(`${MERCADOPAGO_BASE}/authorized_payments/${id}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}`,
+    },
+    signal: AbortSignal.timeout(15000),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    console.error("[MercadoPago] getAuthorizedPayment failed:", res.status, err)
     throw new Error(`Mercado Pago API error: ${res.status} - ${err}`)
   }
 
