@@ -41,6 +41,7 @@ export async function middleware(request: NextRequest) {
     "/reembolso",
     "/recuperar-senha",
     "/redefinir-senha",
+    "/sentry-example-page",
   ]
   const isPublicPage = publicPaths.includes(path)
 
