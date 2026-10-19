@@ -43,7 +43,8 @@ export async function middleware(request: NextRequest) {
     "/redefinir-senha",
     "/sentry-example-page",
   ]
-  const isPublicPage = publicPaths.includes(path)
+  const isPublicPage =
+    publicPaths.includes(path) || path.startsWith("/d/")
 
   if (!user && !isAuthPage && !isPublicPage) {
     const url = request.nextUrl.clone()

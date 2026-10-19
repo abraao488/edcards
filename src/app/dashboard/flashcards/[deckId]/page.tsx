@@ -6,6 +6,7 @@ import { ensureProgressCardsForFlashcards } from "@/lib/srs"
 import { SRSReviewSession } from "@/components/srs-review-session"
 import { getReviewQueueCount } from "@/lib/flashcards/upcoming-actions"
 import { CreateCardDialog } from "@/components/create-card-dialog"
+import { DeckShareToggle } from "@/components/deck-share-toggle"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 
@@ -32,7 +33,13 @@ export default async function DeckDetailPage({
     }),
     prisma.deck.findUnique({
       where: { id: params.deckId },
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        color: true,
+        isPublic: true,
+        shareSlug: true,
         cards: {
           select: { id: true },
         },
@@ -80,6 +87,14 @@ export default async function DeckDetailPage({
       <div className="mb-8 flex items-center justify-between">
         <h1 className="text-3xl font-bold text-foreground">{deck.name}</h1>
         <CreateCardDialog deckId={deck.id} />
+      </div>
+
+      <div className="mb-8">
+        <DeckShareToggle
+          deckId={deck.id}
+          initialIsPublic={deck.isPublic}
+          initialShareSlug={deck.shareSlug}
+        />
       </div>
 
       <SRSReviewSession

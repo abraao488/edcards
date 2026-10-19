@@ -1,11 +1,13 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { prisma } from "@/lib/prisma"
+import { getSiteOrigin } from "@/lib/site"
+import { linkReferral } from "@/lib/referral/service"
+import { recordEvent } from "@/lib/analytics/events"
 import {
   clearAttempts,
   getClientIp,
@@ -18,25 +20,6 @@ type ResetState = { error?: string; success?: boolean } | undefined
 
 const RATE_LIMIT_MESSAGE =
   "Muitas tentativas. Aguarde alguns minutos e tente novamente."
-
-/**
- * Origem pública do app, usada como base do link de redefinição de senha.
- * Prioriza NEXT_PUBLIC_SITE_URL; caso ausente, deriva dos headers da request.
- */
-async function getSiteOrigin(): Promise<string> {
-  const configured = (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    ""
-  ).replace(/\/+$/, "")
-  if (configured) return configured
-
-  const h = await headers()
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000"
-  const proto =
-    h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https")
-  return `${proto}://${host}`
-}
 
 export async function login(_prevState: AuthState, formData: FormData): Promise<AuthState> {
   const supabase = await createClient()
@@ -88,6 +71,8 @@ export async function register(_prevState: AuthState, formData: FormData): Promi
   const email = (formData.get("email") as string) || ""
   const password = formData.get("password") as string
   const concurrence = formData.get("concurrence") as string
+  // Código de indicação (link de convite). Opcional.
+  const referralCode = (formData.get("ref") as string) || null
 
   // Aceite obrigatório dos documentos legais (regra de negócio + LGPD/CDC)
   if (!formData.get("acceptTerms")) {
@@ -131,6 +116,20 @@ export async function register(_prevState: AuthState, formData: FormData): Promi
         userId: signUpData.user.id,
         concurrenceName: concurrence || null,
       },
+    })
+
+    // Atribuição de indicação: melhor esforço — nunca deve derrubar o cadastro.
+    if (referralCode) {
+      try {
+        await linkReferral(signUpData.user.id, referralCode)
+      } catch (err) {
+        console.error("[referral] Falha ao vincular indicação:", err)
+      }
+    }
+
+    await recordEvent("user_registered", {
+      userId: signUpData.user.id,
+      properties: { referred: Boolean(referralCode) },
     })
   }
 

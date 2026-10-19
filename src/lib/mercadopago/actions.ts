@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
 import { createSubscription, createPixPayment, getPayment, getPreApproval } from "./client"
 import { activatePixAccess, applyPreApprovalStatus } from "./sync"
+import { recordEvent } from "@/lib/analytics/events"
 
 const PIX_AMOUNT = 15
 const PIX_DESCRIPTION = "Edcards Premium — Acesso 30 dias"
@@ -72,6 +73,11 @@ export async function subscribe() {
 
   revalidatePath("/dashboard/configuracoes")
 
+  await recordEvent("checkout_started", {
+    userId: user.id,
+    properties: { method: "subscription" },
+  })
+
   return {
     subscriptionId: result.id,
     initPoint: result.init_point,
@@ -122,6 +128,11 @@ export async function payWithPix() {
   }
 
   revalidatePath("/dashboard/configuracoes")
+
+  await recordEvent("checkout_started", {
+    userId: user.id,
+    properties: { method: "pix" },
+  })
 
   return {
     qrCodeBase64: pixData?.qr_code_base64 || null,

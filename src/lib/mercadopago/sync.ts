@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma"
+import { recordEvent } from "@/lib/analytics/events"
+import { grantReferralReward } from "@/lib/referral/service"
 
 export const PIX_ACCESS_DAYS = 30
 
@@ -53,6 +55,13 @@ export async function activatePixAccess(userId: string, paymentId: string) {
       },
     })
   }
+
+  await recordEvent("subscription_activated", {
+    userId,
+    properties: { method: "pix" },
+  })
+  // Idempotente: só recompensa a indicação uma vez por indicado.
+  await grantReferralReward(userId)
 
   return accessExpiresAt
 }
@@ -143,6 +152,14 @@ export async function applyPreApprovalStatus(preApproval: {
     },
   })
 
+  if (newStatus === "ACTIVE") {
+    await recordEvent("subscription_activated", {
+      userId: existing.userId,
+      properties: { method: "subscription" },
+    })
+    await grantReferralReward(existing.userId)
+  }
+
   return { updated: true, status: newStatus }
 }
 
@@ -221,6 +238,14 @@ async function applyPendingPreApproval(
               : null,
     },
   })
+
+  if (newStatus === "ACTIVE") {
+    await recordEvent("subscription_activated", {
+      userId: pending.userId,
+      properties: { method: "subscription" },
+    })
+    await grantReferralReward(pending.userId)
+  }
 
   return { updated: true, status: newStatus }
 }

@@ -54,6 +54,8 @@ model User {
   email             String             @unique
   createdAt         DateTime           @default(now())
   activeProfileId   String?
+  // Código de indicação (crescimento). Gerado sob demanda, nunca reutilizado.
+  referralCode      String?            @unique
   profiles          Profile[]
   subscription      Subscription?
   decks             Deck[]
@@ -66,6 +68,8 @@ model User {
   studySchedules    StudySchedule[]
   studySessions     StudySession[]
   subjects          Subject[]
+  referralsMade     Referral[]         @relation("ReferralReferrer")
+  referralReceived  Referral?          @relation("ReferralReferred")
 }
 
 model Profile {
@@ -110,9 +114,16 @@ model Deck {
   name        String
   description String?
   color       String      @default("#00D4FF")
+  // Crescimento: baralho público tem página indexável em /d/[shareSlug] que
+  // funciona como loop viral (compartilhar → visitante → cadastro).
+  isPublic    Boolean     @default(false)
+  shareSlug   String?     @unique
+  publishedAt DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   cards       Flashcard[]
+
+  @@index([isPublic, publishedAt])
 }
 
 model Flashcard {
@@ -362,4 +373,40 @@ model ScheduledReview {
   @@unique([cycleId, order])
   @@index([cycleId, completedAt])
   @@index([flashcardId, completedAt])
+}
+
+enum ReferralStatus {
+  PENDING
+  REWARDED
+}
+
+// Programa de indicação: um convite (code) vira um Referral quando o indicado
+// se cadastra. A recompensa é concedida quando o indicado tem o pagamento
+// confirmado — assim só recompensa quem realmente vira cliente.
+model Referral {
+  id             String         @id @default(uuid())
+  referrerId     String
+  referrer       User           @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUserId String         @unique
+  referredUser   User           @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  status         ReferralStatus @default(PENDING)
+  rewardDays     Int            @default(30)
+  rewardedAt     DateTime?
+  createdAt      DateTime       @default(now())
+
+  @@index([referrerId, status])
+}
+
+// Eventos de produto para medir o funil (cadastro → checkout → ativação).
+// userId é string simples (sem FK) para que o registro sobreviva à exclusão
+// da conta e nunca derrube um fluxo de pagamento por falha de integridade.
+model AnalyticsEvent {
+  id         String   @id @default(uuid())
+  userId     String?
+  name       String
+  properties Json?
+  createdAt  DateTime @default(now())
+
+  @@index([name, createdAt])
+  @@index([userId, createdAt])
 }
