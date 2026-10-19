@@ -6,7 +6,7 @@ import { register } from "@/lib/auth/actions"
 import { Brain } from "lucide-react"
 import Link from "next/link"
 
-export function RegisterForm() {
+export function RegisterForm({ referralCode }: { referralCode?: string }) {
   const [state, formAction] = useFormState(register, undefined)
   const [confirmError, setConfirmError] = useState<string | null>(null)
 
@@ -18,6 +18,11 @@ export function RegisterForm() {
         <p className="text-sm text-muted-foreground">
           Comece a revisar com inteligência
         </p>
+        {referralCode && (
+          <p className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+            Convite aplicado
+          </p>
+        )}
       </div>
       <form
         action={formAction}
@@ -35,6 +40,7 @@ export function RegisterForm() {
           setConfirmError(null)
         }}
       >
+        {referralCode && <input type="hidden" name="ref" value={referralCode} />}
         <div>
           <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="email">
             Email

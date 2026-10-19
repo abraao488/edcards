@@ -36,6 +36,9 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/recuperar-senha")
   const publicPaths = [
     "/",
+    "/decks",
+    "/robots.txt",
+    "/sitemap.xml",
     "/termos",
     "/privacidade",
     "/reembolso",
@@ -46,19 +49,35 @@ export async function middleware(request: NextRequest) {
   const isPublicPage =
     publicPaths.includes(path) || path.startsWith("/d/")
 
+  // Atribuição de convite: guarda ?ref= em cookie para que o código sobreviva
+  // à navegação até o /register (ex.: visitante chega pelo baralho público).
+  const refParam = request.nextUrl.searchParams.get("ref")
+  const refCookie = refParam?.replace(/[^A-Za-z0-9]/g, "").slice(0, 16) || ""
+
+  function withRefCookie(response: NextResponse) {
+    if (refCookie) {
+      response.cookies.set("ed_ref", refCookie, {
+        maxAge: 60 * 60 * 24 * 30,
+        path: "/",
+        sameSite: "lax",
+      })
+    }
+    return response
+  }
+
   if (!user && !isAuthPage && !isPublicPage) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
-    return NextResponse.redirect(url)
+    return withRefCookie(NextResponse.redirect(url))
   }
 
   if (user && isAuthPage) {
     const url = request.nextUrl.clone()
     url.pathname = "/dashboard"
-    return NextResponse.redirect(url)
+    return withRefCookie(NextResponse.redirect(url))
   }
 
-  return supabaseResponse
+  return withRefCookie(supabaseResponse)
 }
 
 export const config = {

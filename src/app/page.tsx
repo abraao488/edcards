@@ -59,6 +59,12 @@ export default function LandingPage() {
             </Link>
           </div>
           <p className="mt-4 font-mono text-[11px] text-muted-foreground">Sem cartão no cadastro • Cancele quando quiser</p>
+          <Link
+            href="/decks"
+            className="mt-4 inline-block text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:underline"
+          >
+            Explorar baralhos públicos →
+          </Link>
         </div>
       </section>
 

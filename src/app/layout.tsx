@@ -16,9 +16,39 @@ const geistMono = localFont({
   display: "swap",
 })
 
+function resolveMetadataBase(): URL | undefined {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL
+  if (!raw) return undefined
+  try {
+    return new URL(raw)
+  } catch {
+    return undefined
+  }
+}
+
+const siteDescription =
+  "Flashcards com IA e repetição espaçada para concursos públicos. Estude menos, memorize mais."
+
 export const metadata: Metadata = {
-  title: "Edcards - Preparação para Concursos",
-  description: "Sua plataforma de estudos com flashcards e repetição espaçada",
+  metadataBase: resolveMetadataBase(),
+  title: {
+    default: "Edcards — Flashcards com IA para concursos",
+    template: "%s | Edcards",
+  },
+  description: siteDescription,
+  applicationName: "Edcards",
+  openGraph: {
+    type: "website",
+    locale: "pt_BR",
+    siteName: "Edcards",
+    title: "Edcards — Flashcards com IA para concursos",
+    description: siteDescription,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Edcards — Flashcards com IA para concursos",
+    description: siteDescription,
+  },
 }
 
 export default function RootLayout({

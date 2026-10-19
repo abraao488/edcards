@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   ClipboardList,
   Lock,
+  Gift,
   Settings,
   LogOut,
   Menu,
@@ -61,6 +62,11 @@ const navItems = [
     label: "Edital Fechado",
     href: "/edital",
     icon: Lock,
+  },
+  {
+    label: "Convidar amigos",
+    href: "/dashboard/convite",
+    icon: Gift,
   },
   {
     label: "Configurações",

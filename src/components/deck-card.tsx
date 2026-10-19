@@ -1,3 +1,5 @@
+"use client"
+
 import Link from "next/link"
 import { Brain, Trash2 } from "lucide-react"
 import { deleteDeck } from "@/lib/flashcards/actions"
