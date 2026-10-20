@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Brain, Sparkles, CalendarDays, GraduationCap } from "lucide-react"
 import { SiteFooter } from "@/components/site-footer"
+import { formatPlanPrice } from "@/lib/constants"
 
 const benefits = [
   {
@@ -116,7 +117,9 @@ export default function LandingPage() {
               Plano Individual
             </p>
             <div className="mb-6 flex items-baseline justify-center gap-1">
-              <span className="text-5xl font-extrabold tracking-tighter text-foreground">R$ 15</span>
+              <span className="text-5xl font-extrabold tracking-tighter text-foreground">
+                {formatPlanPrice(0)}
+              </span>
               <span className="text-sm text-muted-foreground">/mês</span>
             </div>
             <ul className="mb-8 space-y-3 text-left text-sm text-muted-foreground">

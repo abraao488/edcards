@@ -2,18 +2,17 @@
 
 import { useState } from "react"
 import { User, Plus, CheckCircle2 } from "lucide-react"
-import { Profile, Subscription } from "@prisma/client"
+import { Profile } from "@prisma/client"
 import { switchProfile, createProfile } from "@/lib/profile/actions"
+import { formatPlanPrice } from "@/lib/constants"
 
 interface ProfileManagerProps {
   profiles: Profile[]
-  subscription: Subscription | null
   activeProfileId: string | null
 }
 
 export function ProfileManager({
   profiles,
-  subscription,
   activeProfileId,
 }: ProfileManagerProps) {
   const [newProfileName, setNewProfileName] = useState("")
@@ -21,8 +20,8 @@ export function ProfileManager({
   const [switchingId, setSwitchingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const maxProfiles =
-    subscription?.plan === "GRUPO" ? 5 : subscription?.plan === "DUPLA" ? 2 : 1
+  // Plano único: o checkout só emite INDIVIDUAL, então o limite é sempre 1.
+  const maxProfiles = 1
 
   const canCreateProfile = profiles.length < maxProfiles
 
@@ -59,20 +58,7 @@ export function ProfileManager({
     }
   }
 
-  const getPlanLabel = () => {
-    switch (subscription?.plan) {
-      case "INDIVIDUAL":
-        return { name: "Individual", price: "R$ 15,00", max: 1 }
-      case "DUPLA":
-        return { name: "Em Dupla", price: "R$ 25,00", max: 2 }
-      case "GRUPO":
-        return { name: "Em Grupo", price: "R$ 50,00", max: 5 }
-      default:
-        return { name: "Individual", price: "R$ 15,00", max: 1 }
-    }
-  }
-
-  const planLabel = getPlanLabel()
+  const planLabel = { name: "Individual", price: formatPlanPrice() }
 
   return (
     <div className="rounded-xl border border-border bg-card p-6">
@@ -92,12 +78,7 @@ export function ProfileManager({
           <span className="font-medium text-primary">{planLabel.name}</span> (
           {planLabel.price})
         </p>
-        {subscription?.plan === "INDIVIDUAL" && (
-          <p className="mt-1">
-            Seu plano permite 1 perfil ativo. Faça upgrade para adicionar mais
-            pessoas.
-          </p>
-        )}
+        <p className="mt-1">Seu plano permite 1 perfil por conta.</p>
       </div>
 
       <div className="space-y-3 mb-6">

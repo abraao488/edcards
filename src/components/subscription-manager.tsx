@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { CreditCard, CheckCircle, Loader2, QrCode, Copy, X } from "lucide-react"
 import { subscribe, payWithPix } from "@/lib/mercadopago/actions"
+import { formatPlanPrice } from "@/lib/constants"
 
 interface SubscriptionStatus {
   active: boolean
@@ -207,7 +208,8 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
           )}
 
           <p className="mt-4 text-xs text-muted-foreground">
-            Valor: R$ 15,00 — Acesso por 30 dias, sem renovação automática.
+            Valor: {formatPlanPrice()} — Acesso por 30 dias, sem renovação
+            automática.
           </p>
         </div>
       </div>
@@ -224,7 +226,9 @@ export function SubscriptionManager({ sub }: { sub: SubscriptionStatus | null })
           Acesso ilimitado a todas as funcionalidades da plataforma.
         </p>
         <div className="mb-6 text-center">
-          <span className="text-4xl font-bold text-foreground">R$ 15</span>
+          <span className="text-4xl font-bold text-foreground">
+            {formatPlanPrice(0)}
+          </span>
           <span className="text-muted-foreground">/mês</span>
         </div>
         <ul className="mb-6 space-y-2 text-sm text-muted-foreground">

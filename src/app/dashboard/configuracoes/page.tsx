@@ -110,7 +110,6 @@ export default async function ConfiguracoesPage({
 
               <ProfileManager
                 profiles={dbUser.profiles}
-                subscription={dbUser.subscription}
                 activeProfileId={dbUser.activeProfileId}
               />
 

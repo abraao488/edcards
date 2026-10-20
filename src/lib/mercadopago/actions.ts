@@ -6,8 +6,8 @@ import { prisma } from "@/lib/prisma"
 import { createSubscription, createPixPayment, getPayment, getPreApproval } from "./client"
 import { activatePixAccess, applyPreApprovalStatus } from "./sync"
 import { recordEvent } from "@/lib/analytics/events"
+import { PLAN_PRICE_BRL } from "@/lib/constants"
 
-const PIX_AMOUNT = 15
 const PIX_DESCRIPTION = "Edcards Premium — Acesso 30 dias"
 
 export async function subscribe() {
@@ -95,7 +95,7 @@ export async function payWithPix() {
   if (!email) throw new Error("Email não encontrado")
 
   const result = await createPixPayment({
-    amount: PIX_AMOUNT,
+    amount: PLAN_PRICE_BRL,
     description: PIX_DESCRIPTION,
     externalReference: user.id,
     payerEmail: email,

@@ -91,18 +91,15 @@ export async function createProfile(name: string) {
   } = await supabase.auth.getUser()
   if (!user) throw new Error("Not authenticated")
 
-  const [dbUser, subscription] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: user.id },
-      include: { profiles: true },
-    }),
-    prisma.subscription.findUnique({ where: { userId: user.id } }),
-  ])
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    include: { profiles: true },
+  })
 
   if (!dbUser) throw new Error("User not found")
 
-  const maxProfiles =
-    subscription?.plan === "GRUPO" ? 5 : subscription?.plan === "DUPLA" ? 2 : 1
+  // Plano único (INDIVIDUAL): o checkout não emite outro, então o limite é 1.
+  const maxProfiles = 1
 
   if (dbUser.profiles.length >= maxProfiles) {
     throw new Error("Limite de perfis atingido para seu plano")

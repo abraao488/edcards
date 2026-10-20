@@ -1,3 +1,5 @@
+import { PLAN_PRICE_BRL } from "@/lib/constants"
+
 const MERCADOPAGO_BASE = "https://api.mercadopago.com"
 
 // URL de notificação enviada junto de cada cobrança, para não depender do
@@ -60,7 +62,7 @@ export async function createSubscription({
       auto_recurring: {
         frequency: 1,
         frequency_type: "months",
-        transaction_amount: 15,
+        transaction_amount: PLAN_PRICE_BRL,
         currency_id: "BRL",
       },
       back_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/configuracoes`,

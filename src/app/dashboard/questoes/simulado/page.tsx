@@ -3,6 +3,7 @@ import { ArrowLeft, Play } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { prisma } from "@/lib/prisma"
 import { SimuladoEngine } from "@/components/simulado-engine"
+import { shuffle } from "@/lib/utils"
 
 export const dynamic = "force-dynamic"
 
@@ -16,7 +17,7 @@ export default async function SimuladoPage() {
     select: { id: true, statement: true, options: true, correctIndex: true, explanation: true },
   })
 
-  const shuffled = [...questions].sort(() => Math.random() - 0.5)
+  const shuffled = shuffle(questions)
 
   const serialized = shuffled.map((q) => ({
     ...q,
