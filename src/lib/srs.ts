@@ -357,6 +357,128 @@ interface CreateCycleParams {
   studentAnswer: string
 }
 
+interface AdoptCycleParams {
+  cycleId: string
+  progressCardId: string
+  classification: DifficultyStage
+  feedback: string | null
+  flashcardId: string
+  /** Sempre derivado da sessão (ensureUserExists), nunca do cliente. */
+  userId: string
+  studentAnswer: string
+}
+
+/**
+ * Adota um ciclo PRÉ-AGENDADO (Gerenciador → "Agendar revisões"): grava a
+ * classificação e PRESERVA as datas escolhidas pelo usuário — o cronograma
+ * manual é a verdade, a classificação só acrescenta a dificuldade.
+ *
+ * Revisões cujo prazo já passou foram consumidas pelas resoluções anteriores
+ * (1ª e 2ª resolução): são marcadas como concluídas e o ponteiro
+ * `currentReview` avança para a primeira revisão ainda futura. É o mesmo
+ * tratamento do backfill (scripts/backfill-review-cycles.ts) — o card não
+ * acumula dívida de revisões vencidas.
+ *
+ * Se TODAS as revisões já venceram, o ciclo é finalizado (COMPLETED) e o card
+ * volta ao estado de renovação.
+ */
+async function adoptPreScheduledCycle(
+  params: AdoptCycleParams
+): Promise<CycleCreationResult> {
+  const now = new Date()
+  const rating = classificationToRating(params.classification)
+
+  const cycle = await prisma.reviewCycle.findUnique({
+    where: { id: params.cycleId },
+    select: {
+      id: true,
+      totalReviews: true,
+      scheduledReviews: {
+        orderBy: { order: "asc" },
+        select: { id: true, order: true, scheduleDate: true, completedAt: true },
+      },
+    },
+  })
+
+  if (!cycle) {
+    throw new Error("Ciclo de revisão pré-agendado não encontrado")
+  }
+
+  const pending = cycle.scheduledReviews.filter((s) => !s.completedAt)
+  const nextPending = pending.find((s) => s.scheduleDate > now)
+  const ended = !nextPending
+  const currentReview = ended ? cycle.totalReviews : nextPending.order
+  const nextReviewDate = ended
+    ? cycle.scheduledReviews[cycle.scheduledReviews.length - 1].scheduleDate
+    : nextPending.scheduleDate
+
+  await prisma.$transaction([
+    prisma.reviewCycle.update({
+      where: { id: params.cycleId },
+      data: {
+        classification: params.classification,
+        initialCycleEvaluationCompleted: true,
+        status: ended ? "COMPLETED" : "ACTIVE",
+        currentReview,
+      },
+    }),
+    // Revisões vencidas antes da classificação: já consumidas.
+    prisma.scheduledReview.updateMany({
+      where: {
+        cycleId: params.cycleId,
+        completedAt: null,
+        scheduleDate: { lte: now },
+      },
+      data: { completedAt: now },
+    }),
+    prisma.progressCard.update({
+      where: { id: params.progressCardId },
+      data: {
+        difficultyStage: params.classification,
+        currentCycleDay: currentReview,
+        isCycleEnded: ended,
+        hasChosenEvalMode: true,
+        lastRating: rating,
+        nextReviewDate,
+      },
+    }),
+    prisma.flashcard.update({
+      where: { id: params.flashcardId },
+      data: {
+        difficultyLevel: params.classification,
+        currentCycleDay: currentReview,
+        cycleCompleted: ended,
+        nextReview: nextReviewDate,
+        lastReview: now,
+      },
+    }),
+    prisma.flashcardReview.create({
+      data: {
+        flashcardId: params.flashcardId,
+        userId: params.userId,
+        date: now,
+        quality: rating,
+        difficultyLevel: params.classification,
+        userAnswer: params.studentAnswer?.slice(0, 2000) || null,
+        aiEvaluation: params.feedback?.slice(0, 2000) || null,
+        source: "SCHEDULED",
+        cycleId: params.cycleId,
+      },
+    }),
+  ])
+
+  safeRevalidate(REVALIDATE_PATHS)
+
+  return {
+    classification: params.classification,
+    feedback: params.feedback,
+    cycleId: params.cycleId,
+    nextReviewDate,
+    scheduleDates: cycle.scheduledReviews.map((s) => s.scheduleDate),
+    totalReviews: cycle.totalReviews,
+  }
+}
+
 /**
  * Cria o ciclo de revisão completo para um card a partir da classificação
  * (única por ciclo). Persiste a avaliação (FlashcardReview com cycleId),
@@ -446,15 +568,20 @@ async function createCycleInternal(params: CreateCycleParams): Promise<CycleCrea
 /**
  * Classificação definitiva do card na 2ª resolução (24h após a 1ª).
  * Cria o ciclo de revisão completo. Guarda: só é permitida quando NÃO existe
- * ciclo ativo (a classificação acontece uma única vez por ciclo — nunca
- * é recalculada durante o ciclo).
+ * ciclo ativo JÁ CLASSIFICADO (a classificação acontece uma única vez por
+ * ciclo — nunca é recalculada durante o ciclo).
+ *
+ * Exceção: ciclo PRÉ-AGENDADO pelo Gerenciador (initialCycleEvaluationCompleted
+ * = false) NÃO é considerado um ciclo já classificado. A classificação o
+ * ADOTA — atualiza a dificuldade e preserva as datas que o usuário escolheu
+ * (ver `adoptPreScheduledCycle`).
  *
  * `precomputed` permite que a CLASSIFICAÇÃO (avaliada antes, sem escrever nada)
  * seja reaproveitada no momento da gravação. Isso existe para que a criação do
  * ciclo — que é escrita no banco — só aconteça quando o usuário confirma
  * explicitamente ("Próximo card"), e não no momento em que a resposta é avaliada.
  * As guards abaixo continuam valendo no servidor: mesmo com `precomputed`, um
- * ciclo já ativo faz a operação falhar.
+ * ciclo já classificado faz a operação falhar.
  */
 export async function classifyAndCreateCycle(
   progressCardId: string,
@@ -471,7 +598,7 @@ export async function classifyAndCreateCycle(
       flashcard: { select: { id: true, front: true, back: true } },
       reviewCycles: {
         where: { status: "ACTIVE" },
-        select: { id: true },
+        select: { id: true, initialCycleEvaluationCompleted: true },
         take: 1,
       },
     },
@@ -481,7 +608,10 @@ export async function classifyAndCreateCycle(
     throw new Error("ProgressCard não encontrado ou não pertence a este usuário")
   }
 
-  if (progressCard.reviewCycles.length > 0) {
+  const activeCycle = progressCard.reviewCycles[0]
+
+  // Ciclo ativo JÁ classificado: a classificação não se repete.
+  if (activeCycle && activeCycle.initialCycleEvaluationCompleted !== false) {
     throw new Error("Este card já possui um ciclo de revisão ativo")
   }
 
@@ -493,6 +623,19 @@ export async function classifyAndCreateCycle(
       studentAnswer,
       manualDifficulty
     ))
+
+  // Ciclo pré-agendado: adota o cronograma escolhido pelo usuário.
+  if (activeCycle) {
+    return adoptPreScheduledCycle({
+      cycleId: activeCycle.id,
+      progressCardId,
+      classification: difficulty,
+      feedback,
+      flashcardId: progressCard.flashcard.id,
+      userId: user.id,
+      studentAnswer,
+    })
+  }
 
   return createCycleInternal({
     progressCardId,
@@ -786,6 +929,18 @@ export async function ensureProgressCardsForFlashcards(
           totalReviews: true,
           baseDate: true,
           status: true,
+          // false = ciclo pré-agendado (ainda sem avaliação inicial).
+          initialCycleEvaluationCompleted: true,
+          // Cronograma persistido: é a verdade dos dias agendados.
+          scheduledReviews: {
+            orderBy: { order: "asc" },
+            select: {
+              order: true,
+              scheduleDate: true,
+              isFinal: true,
+              completedAt: true,
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -810,6 +965,13 @@ export async function ensureProgressCardsForFlashcards(
             totalReviews: activeCycle.totalReviews,
             baseDate: activeCycle.baseDate,
             isFinal: activeCycle.currentReview >= activeCycle.totalReviews,
+            initialEvaluationCompleted: activeCycle.initialCycleEvaluationCompleted,
+            schedule: activeCycle.scheduledReviews.map((s) => ({
+              order: s.order,
+              scheduleDate: s.scheduleDate,
+              isFinal: s.isFinal,
+              completedAt: s.completedAt,
+            })),
           }
         : null,
       hasCompletedCycle: pc.reviewCycles.some((c) => c.status === "COMPLETED"),

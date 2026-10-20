@@ -54,6 +54,61 @@ export function buildReviewSchedule(
   }))
 }
 
+// ---------------------------------------------------------------------------
+// Agendamento manual (Gerenciador → "Agendar revisões")
+//
+// O agendamento manual NÃO é uma classificação: ele não escolhe dificuldade
+// nem consulta IA. Ele só escolhe QUANDO o card será revisado. Por isso vive
+// aqui, separado de `buildReviewSchedule` (que deriva os dias da dificuldade).
+//
+// Semântica dos dias — os dois planos NÃO são a mesma coisa:
+// - "offset": cada elemento é um offset ABSOLUTO a partir da data-base.
+//   standard [1, 7, 15] → +1, +7 e +15 dias ("1, 7 e 15 dias" na UI).
+// - "step":   cada elemento é um intervalo a partir da revisão ANTERIOR.
+//   intensive [2, 2, 2, 2] → +2, +4, +6 e +8 dias ("a cada 2 dias" na UI).
+//
+// Lido como offset absoluto, [2,2,2,2] colapsaria as 4 revisões no mesmo dia.
+// A distinção fica explícita no plano, não escondida no array.
+
+export type ManualScheduleType = "standard" | "intensive" | "custom"
+
+export interface ManualSchedulePlan {
+  mode: "offset" | "step"
+  days: number[]
+}
+
+export const MANUAL_SCHEDULES: Record<ManualScheduleType, ManualSchedulePlan> = {
+  standard: { mode: "offset", days: [1, 7, 15] },
+  intensive: { mode: "step", days: [2, 2, 2, 2] },
+  custom: { mode: "offset", days: [1, 7, 15] },
+}
+
+/**
+ * Resolve o plano de agendamento manual em datas absolutas (início do dia).
+ * Garante datas DISTINTAS: offsets repetidos geram a mesma data e foram
+ * removidos (uma revisão por dia é o que "agendar N dias" significa).
+ * A última revisão do cronograma recebe isFinal = true.
+ */
+export function resolveManualSchedule(
+  type: ManualScheduleType,
+  baseDate: Date
+): ScheduledReviewPlan[] {
+  const plan = MANUAL_SCHEDULES[type] ?? MANUAL_SCHEDULES.standard
+
+  const offsets: number[] = []
+  let accumulated = 0
+  for (const day of plan.days) {
+    accumulated = plan.mode === "step" ? accumulated + day : day
+    offsets.push(accumulated)
+  }
+
+  const distinct = Array.from(new Set(offsets))
+  return distinct.map((offset, index) => ({
+    scheduleDate: startOfDay(addDays(baseDate, offset)),
+    isFinal: index === distinct.length - 1,
+  }))
+}
+
 export interface ActiveCycleInfo {
   id: string
   classification: DifficultyStage
@@ -61,6 +116,23 @@ export interface ActiveCycleInfo {
   totalReviews: number
   baseDate: Date
   isFinal: boolean // currentReview === totalReviews
+  /**
+   * false = ciclo PRÉ-AGENDADO (criado pelo Gerenciador, sem avaliação inicial).
+   * Ausente = true (ciclo nascido de uma classificação), retrocompatível.
+   */
+  initialEvaluationCompleted?: boolean
+  /**
+   * Cronograma PERSISTIDO do ciclo (ScheduledReview), indexado por `order - 1`.
+   * Ausente = o consumidor reconstrói a partir de `classification` (fallback).
+   */
+  schedule?: CycleScheduleEntry[]
+}
+
+export interface CycleScheduleEntry {
+  order: number
+  scheduleDate: Date
+  isFinal: boolean
+  completedAt?: Date | null
 }
 
 export type ReviewState =
@@ -85,6 +157,10 @@ export interface ReviewStateInput {
  * - Sem firstReviewAt → FIRST_RESOLUTION (botão "Concluir 1ª Revisão").
  * - Com firstReviewAt e sem ciclo ativo → AGUARDANDO_AVALIACAO_24H (classificação Autoavaliar/IA).
  * - Com ciclo ativo → CICLO_ATIVO ou ULTIMA_REVISAO (a classificação NÃO é re-exibida).
+ * - Ciclo PRÉ-AGENDADO (initialEvaluationCompleted === false) NÃO conta como
+ *   ciclo em curso: ele ainda não passou pela avaliação inicial, então o card
+ *   volta para AGUARDANDO_AVALIACAO_24H. É o que impede o agendamento manual
+ *   do Gerenciador de matar a etapa de avaliação por IA e travar o card.
  * - Sem ciclo ativo mas com ciclo(s) concluído(s) → CICLO_FINALIZADO (renovação).
  * - isQuizMode → CONSULTA (guarda total: nenhuma escrita).
  */
@@ -97,6 +173,13 @@ export function deriveReviewState(
   if (!input.firstReviewAt) return "FIRST_RESOLUTION"
 
   const activeCycle = input.activeCycle ?? null
+
+  // Ciclo pré-agendado: criado pelo Gerenciador, ainda sem avaliação inicial.
+  // Precisa da classificação antes de entrar no cronograma.
+  if (activeCycle && activeCycle.initialEvaluationCompleted === false) {
+    return "AGUARDANDO_AVALIACAO_24H"
+  }
+
   if (activeCycle) {
     return activeCycle.isFinal ? "ULTIMA_REVISAO" : "CICLO_ATIVO"
   }

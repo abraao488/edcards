@@ -185,8 +185,15 @@ export function GerenciadorClient({
     if (!selectedTopicId) return
     setIsScheduling(true)
     try {
-      await scheduleTopicReviews(selectedTopicId, scheduleType)
-      showToast("Revisões agendadas com sucesso!", "success")
+      const result = await scheduleTopicReviews(selectedTopicId, scheduleType)
+      const details: string[] = [`${result.created} card(s) agendado(s)`]
+      if (result.skipped > 0) {
+        details.push(`${result.skipped} já com ciclo em andamento`)
+      }
+      if (result.failed > 0) {
+        details.push(`${result.failed} com falha`)
+      }
+      showToast(details.join(" · "), result.failed > 0 ? "error" : "success")
       setShowReviewModal(false)
       router.refresh()
     } catch (err) {
@@ -302,7 +309,7 @@ export function GerenciadorClient({
               >
                 <div>
                   <p className="font-semibold text-foreground">
-                    Ciclo Padrão SRS
+                    Revisão Padrão
                   </p>
                   <p className="text-xs text-muted-foreground">1, 7 e 15 dias</p>
                 </div>

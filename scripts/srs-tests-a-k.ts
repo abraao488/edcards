@@ -17,6 +17,7 @@ import {
   buildReviewSchedule,
   deriveReviewState,
   queueFilterWithoutCompletedOnly,
+  resolveManualSchedule,
   startOfDay,
   addDays,
   type ActiveCycleInfo,
@@ -63,6 +64,7 @@ function assert(cond: boolean, msg: string) {
 // ------------------------------------------------------- sessão de teste (mock)
 type SrsModule = typeof import("@/lib/srs")
 type DashboardModule = typeof import("@/lib/dashboard/actions")
+type StudySessionsModule = typeof import("@/lib/study-sessions/actions")
 
 let classifyAndCreateCycle: SrsModule["classifyAndCreateCycle"]
 let completeCycleReview: SrsModule["completeCycleReview"]
@@ -71,6 +73,7 @@ let skipFlashcard: SrsModule["skipFlashcard"]
 let submitFirstReview: SrsModule["submitFirstReview"]
 let ensureProgressCardsForFlashcards: SrsModule["ensureProgressCardsForFlashcards"]
 let getRevisionCalendarForUser: DashboardModule["getRevisionCalendarForUser"]
+let scheduleTopicReviews: StudySessionsModule["scheduleTopicReviews"]
 
 /**
  * As Server Actions chamam ensureUserExists(), que depende de cookies do
@@ -94,6 +97,7 @@ function mockAuthSession(userId: string, email: string) {
 async function loadServerActions() {
   srsModule = await import("@/lib/srs")
   dashboardModule = await import("@/lib/dashboard/actions")
+  studySessionsModule = await import("@/lib/study-sessions/actions")
   classifyAndCreateCycle = srsModule.classifyAndCreateCycle
   completeCycleReview = srsModule.completeCycleReview
   renewReviewCycle = srsModule.renewReviewCycle
@@ -101,10 +105,12 @@ async function loadServerActions() {
   submitFirstReview = srsModule.submitFirstReview
   ensureProgressCardsForFlashcards = srsModule.ensureProgressCardsForFlashcards
   getRevisionCalendarForUser = dashboardModule.getRevisionCalendarForUser
+  scheduleTopicReviews = studySessionsModule.scheduleTopicReviews
 }
 
 let srsModule: SrsModule
 let dashboardModule: DashboardModule
+let studySessionsModule: StudySessionsModule
 
 function dateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -205,6 +211,8 @@ async function createTestWorld() {
     prisma,
     userId,
     profileId: profile.id,
+    topicId: topic.id,
+    deckId: deck.id,
     cardA,
     cardB,
     cardC,
@@ -570,6 +578,280 @@ async function main() {
       where: { profileId: world.profileId, flashcardId: world.intruder.flashcardId },
     })
     assert(leaked === null, "nenhum ProgressCard criado para flashcard alheio")
+  })
+
+  // ---------- M) Agendamento manual (Gerenciador → "Agendar revisões") ----------
+  test("M1: resolveManualSchedule — padrão 1/7/15 e intensiva a cada 2 dias", () => {
+    const base = new Date(2026, 0, 1)
+
+    const standard = resolveManualSchedule("standard", base)
+    eq(standard.length, 3, "padrão = 3 revisões")
+    eq(
+      standard.map((s) => dateStr(s.scheduleDate)),
+      ["2026-01-02", "2026-01-08", "2026-01-16"],
+      "padrão agenda +1, +7 e +15 dias"
+    )
+    eq(standard[2].isFinal, true, "isFinal só na última")
+
+    const intensive = resolveManualSchedule("intensive", base)
+    eq(intensive.length, 4, "intensiva = 4 revisões")
+    eq(
+      intensive.map((s) => dateStr(s.scheduleDate)),
+      ["2026-01-03", "2026-01-05", "2026-01-07", "2026-01-09"],
+      "intensiva agenda +2, +4, +6 e +8 dias (a cada 2 dias)"
+    )
+    eq(intensive[3].isFinal, true, "isFinal só na última (intensiva)")
+    for (let i = 0; i < 3; i++) {
+      eq(intensive[i].isFinal, false, `intensiva ${i + 1} não final`)
+    }
+
+    // Toda revisão começa no início do dia e as datas são distintas
+    for (const s of [...standard, ...intensive]) {
+      eq(s.scheduleDate.getHours(), 0, "início do dia")
+      eq(s.scheduleDate.getMinutes(), 0, "início do dia (minutos)")
+    }
+    const dates = intensive.map((s) => dateStr(s.scheduleDate))
+    eq(new Set(dates).size, dates.length, "datas distintas (nenhuma revisão colapsa)")
+  })
+
+  test("M2: ciclo pré-agendado NÃO é ciclo em curso (estado de classificação)", () => {
+    const base = now()
+    const preScheduled: ActiveCycleInfo = {
+      id: "x",
+      classification: "MEDIUM",
+      currentReview: 1,
+      totalReviews: 3,
+      baseDate: base,
+      isFinal: false,
+      initialEvaluationCompleted: false,
+    }
+    const classified: ActiveCycleInfo = { ...preScheduled, initialEvaluationCompleted: true }
+
+    eq(
+      deriveReviewState({ firstReviewAt: base, activeCycle: preScheduled }, false),
+      "AGUARDANDO_AVALIACAO_24H",
+      "pré-agendado ainda precisa da classificação"
+    )
+    eq(
+      deriveReviewState({ firstReviewAt: base, activeCycle: classified }, false),
+      "CICLO_ATIVO",
+      "ciclo classificado é ciclo em curso"
+    )
+    eq(
+      deriveReviewState({ activeCycle: preScheduled }, false),
+      "FIRST_RESOLUTION",
+      "sem 1ª resolução, continua na 1ª resolução"
+    )
+  })
+
+  test("M3: scheduleTopicReviews (padrão) cria ciclo + 3 revisões agendadas", async () => {
+    const cardE = await prisma.flashcard.create({
+      data: { deckId: world.deckId, front: "Card E", back: "E", topicId: world.topicId },
+    })
+    const cardF = await prisma.flashcard.create({
+      data: { deckId: world.deckId, front: "Card F", back: "F", topicId: world.topicId },
+    })
+
+    const result = await scheduleTopicReviews(world.topicId, "standard")
+    const topicCards = await prisma.flashcard.count({ where: { topicId: world.topicId } })
+    eq(
+      result.created + result.skipped + result.failed,
+      topicCards,
+      "todos os cards do tópico foram processados"
+    )
+    assert(result.created >= 2, "cards E e F agendados")
+    eq(result.failed, 0, "nenhuma falha")
+
+    for (const fc of [cardE, cardF]) {
+      const cycle = await prisma.reviewCycle.findFirst({
+        where: { flashcardId: fc.id, status: "ACTIVE" },
+        include: { scheduledReviews: { orderBy: { order: "asc" } } },
+      })
+      assert(!!cycle, "ciclo criado")
+      const c = cycle!
+      eq(c.totalReviews, 3, "3 revisões no ciclo")
+      eq(c.currentReview, 1, "currentReview inicia em 1")
+      eq(c.initialCycleEvaluationCompleted, false, "agendamento manual não é classificação")
+
+      eq(c.scheduledReviews.length, 3, "3 ScheduledReview criadas")
+      eq(c.scheduledReviews[0].order, 1, "order 1")
+      eq(c.scheduledReviews[2].order, 3, "order 3")
+      eq(c.scheduledReviews[2].isFinal, true, "isFinal só na última")
+      eq(c.scheduledReviews[0].isFinal, false, "order 1 não final")
+      assert(
+        c.scheduledReviews.every((s) => s.completedAt === null),
+        "nenhuma revisão já concluída"
+      )
+
+      const today = startOfDay(new Date())
+      eq(
+        c.scheduledReviews.map((s) => dateStr(s.scheduleDate)),
+        [1, 7, 15].map((d) => dateStr(startOfDay(addDays(today, d)))),
+        "datas +1, +7 e +15"
+      )
+
+      const pc = await prisma.progressCard.findFirst({
+        where: { flashcardId: fc.id, profileId: world.profileId },
+      })
+      assert(!!pc, "ProgressCard criado")
+      assert(
+        sameDate(pc!.nextReviewDate, c.scheduledReviews[0].scheduleDate),
+        "nextReviewDate = 1ª revisão agendada"
+      )
+    }
+  })
+
+  test("M4: scheduleTopicReviews (intensiva) agenda 4 datas distintas", async () => {
+    const cardG = await prisma.flashcard.create({
+      data: { deckId: world.deckId, front: "Card G", back: "G", topicId: world.topicId },
+    })
+
+    const result = await scheduleTopicReviews(world.topicId, "intensive")
+    assert(result.created >= 1, "card G agendado")
+
+    const cycle = await prisma.reviewCycle.findFirst({
+      where: { flashcardId: cardG.id, status: "ACTIVE" },
+      include: { scheduledReviews: { orderBy: { order: "asc" } } },
+    })
+    assert(!!cycle, "ciclo criado")
+    eq(cycle!.totalReviews, 4, "4 revisões")
+    eq(cycle!.scheduledReviews.length, 4, "4 ScheduledReview")
+
+    const today = startOfDay(new Date())
+    eq(
+      cycle!.scheduledReviews.map((s) => dateStr(s.scheduleDate)),
+      [2, 4, 6, 8].map((d) => dateStr(startOfDay(addDays(today, d)))),
+      "datas +2, +4, +6 e +8 (a cada 2 dias)"
+    )
+    const dates = cycle!.scheduledReviews.map((s) => dateStr(s.scheduleDate))
+    eq(new Set(dates).size, 4, "4 datas distintas")
+  })
+
+  test("M5: re-agendar NÃO destrói ciclo em andamento", async () => {
+    const before = await prisma.reviewCycle.findFirst({
+      where: { flashcardId: world.flashcardC.id, status: "ACTIVE" },
+      include: { scheduledReviews: { orderBy: { order: "asc" } } },
+    })
+    assert(!!before, "card C tem ciclo ativo")
+
+    const result = await scheduleTopicReviews(world.topicId, "standard")
+    eq(result.created, 0, "nenhum ciclo novo (todos já têm ciclo ativo)")
+    assert(result.skipped > 0, "cards pulados reportados")
+
+    const after = await prisma.reviewCycle.findFirst({
+      where: { flashcardId: world.flashcardC.id, status: "ACTIVE" },
+      include: { scheduledReviews: { orderBy: { order: "asc" } } },
+    })
+    eq(after!.id, before!.id, "mesmo ciclo")
+    eq(after!.totalReviews, before!.totalReviews, "cronograma intacto")
+    eq(
+      after!.scheduledReviews.map((s) => dateStr(s.scheduleDate)),
+      before!.scheduledReviews.map((s) => dateStr(s.scheduleDate)),
+      "datas intactas"
+    )
+  })
+
+  test("M6: a classificação ADOTA o ciclo pré-agendado e preserva as datas", async () => {
+    const cardE = await prisma.flashcard.findFirst({
+      where: { deckId: world.deckId, front: "Card E" },
+    })
+    assert(!!cardE, "card E existe")
+    const pc = await prisma.progressCard.findFirst({
+      where: { flashcardId: cardE!.id, profileId: world.profileId },
+    })
+    assert(!!pc, "ProgressCard de E")
+
+    const before = await prisma.reviewCycle.findFirst({
+      where: { flashcardId: cardE!.id, status: "ACTIVE" },
+      include: { scheduledReviews: { orderBy: { order: "asc" } } },
+    })
+    const beforeDates = before!.scheduledReviews.map((s) => dateStr(s.scheduleDate))
+
+    // 1ª resolução: o card passa a ter firstReviewAt
+    await submitFirstReview(pc!.id)
+
+    // Com o ciclo pré-agendado, o estado continua "aguardando avaliação"
+    const state = deriveReviewState(
+      {
+        firstReviewAt: (await prisma.progressCard.findUnique({ where: { id: pc!.id } }))!.firstReviewAt,
+        activeCycle: {
+          id: before!.id,
+          classification: "MEDIUM",
+          currentReview: before!.currentReview,
+          totalReviews: before!.totalReviews,
+          baseDate: before!.baseDate,
+          isFinal: false,
+          initialEvaluationCompleted: false,
+        },
+      },
+      false
+    )
+    eq(state, "AGUARDANDO_AVALIACAO_24H", "pré-agendado não pula a classificação")
+
+    const r = await classifyAndCreateCycle(pc!.id, "resposta do aluno", "EASY")
+    eq(r.cycleId, before!.id, "mesmo ciclo foi adotado (nenhum ciclo novo)")
+    eq(r.classification, "EASY", "classificação gravada")
+    eq(r.totalReviews, 3, "total preservado")
+
+    const cycles = await prisma.reviewCycle.findMany({
+      where: { progressCardId: pc!.id },
+      include: { scheduledReviews: { orderBy: { order: "asc" } } },
+    })
+    eq(cycles.length, 1, "continua com UM ciclo só")
+    eq(cycles[0].classification, "EASY", "classificação no ciclo")
+    eq(cycles[0].initialCycleEvaluationCompleted, true, "ciclo agora avaliado")
+    eq(
+      cycles[0].scheduledReviews.map((s) => dateStr(s.scheduleDate)),
+      beforeDates,
+      "datas escolhidas pelo usuário preservadas"
+    )
+
+    const after = await prisma.progressCard.findUnique({ where: { id: pc!.id } })
+    eq(after!.difficultyStage, "EASY", "difficultyStage atualizado")
+    eq(after!.isCycleEnded, false, "ciclo em andamento")
+  })
+
+  test("M7: na adoção, revisões vencidas são consumidas", async () => {
+    const cardF = await prisma.flashcard.findFirst({
+      where: { deckId: world.deckId, front: "Card F" },
+    })
+    assert(!!cardF, "card F existe")
+    const pc = await prisma.progressCard.findFirst({
+      where: { flashcardId: cardF!.id, profileId: world.profileId },
+    })
+    assert(!!pc, "ProgressCard de F")
+
+    // Simula o atraso do usuário: a 1ª revisão venceu ontem.
+    const cycle = await prisma.reviewCycle.findFirst({
+      where: { flashcardId: cardF!.id, status: "ACTIVE" },
+      include: { scheduledReviews: { orderBy: { order: "asc" } } },
+    })
+    const yesterday = startOfDay(addDays(new Date(), -1))
+    await prisma.scheduledReview.update({
+      where: { id: cycle!.scheduledReviews[0].id },
+      data: { scheduleDate: yesterday },
+    })
+
+    await classifyAndCreateCycle(pc!.id, "resposta atrasada", "MEDIUM")
+
+    const after = await prisma.reviewCycle.findFirst({
+      where: { flashcardId: cardF!.id, status: "ACTIVE" },
+      include: { scheduledReviews: { orderBy: { order: "asc" } } },
+    })
+    assert(!!after, "ciclo continua ativo")
+    eq(after!.currentReview, 2, "currentReview avançou para a 2ª revisão")
+    assert(
+      after!.scheduledReviews[0].completedAt !== null,
+      "revisão vencida foi consumida"
+    )
+    assert(
+      after!.scheduledReviews[1].completedAt === null,
+      "2ª revisão continua pendente"
+    )
+    assert(
+      sameDate(after!.scheduledReviews[1].scheduleDate, after!.scheduledReviews[1].scheduleDate),
+      "cronograma preservado"
+    )
   })
 
   // ------------------------------------------------- query the results

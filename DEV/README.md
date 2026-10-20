@@ -1,0 +1,31 @@
+# DEV — Edcards
+
+Documentação durável do projeto. Leia nesta ordem:
+
+1. `SPECS/ACTIVE.md` — contrato da tarefa em andamento (escopo, aceite, status)
+2. `HANDOFF.md` — contexto de retomada (o que está pronto, o que falta)
+3. `CONTEXT.md` — estado geral do projeto
+4. `WORKLOG.md` — histórico compacto das últimas mudanças
+5. `VERIFY.md` — evidências de verificação (comandos + resultado)
+
+Subpastas válidas (não renomear sem atualizar este índice):
+`SPECS/`, `LOGS/`, `SQL/`, `ARCH/`, `WORKFLOWS/`, `TESTS/`, `DOCUMENTATION/`, `BACKLOG/`.
+
+## Mapa
+
+| Arquivo | Conteúdo |
+|---|---|
+| `SPECS/ACTIVE.md` | Especificação ativa (tema do agendamento manual de revisões) |
+| `CONTEXT.md` | Arquitetura relevante, decisões estruturais, armadilhas conhecidas |
+| `WORKLOG.md` | Entradas curtas das mudanças recentes |
+| `VERIFY.md` | Evidências de verificação por mudança |
+| `HANDOFF.md` | Contexto para o próximo agente |
+
+## Comandos de verificação
+
+```powershell
+npx tsc --noEmit          # tipos
+npm run lint              # eslint (warnings pré-existentes são tolerados)
+npm run build             # gate do projeto: prisma generate + next build
+npx tsx scripts/srs-tests-a-k.ts   # harness A–M do SRS (banco real, usuário descartável)
+```

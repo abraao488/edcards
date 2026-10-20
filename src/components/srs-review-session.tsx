@@ -589,15 +589,31 @@ export function SRSReviewSession({
         setFeedbackKind("CLASSIFIED")
       } else if (state === "CICLO_ATIVO" || state === "ULTIMA_REVISAO") {
         // completeCycleReview não reclassifica: o cronograma foi congelado na
-        // classificação. O preview abaixo apenas reproduz localmente o
-        // cronograma JÁ persistido (mesma buildReviewSchedule, mesma baseDate
-        // do ReviewCycle) — nenhuma escrita acontece aqui.
+        // classificação. O preview abaixo reproduz o cronograma JÁ PERSISTIDO
+        // (ScheduledReview) — nada é escrito aqui.
+        //
+        // O cronograma persistido é a verdade: o agendamento manual do
+        // Gerenciador usa dias que NÃO derivam da dificuldade, então re-derivar
+        // de `buildReviewSchedule` mostraria datas erradas ao usuário. O
+        // fallback (derivado da classificação) só serve para ciclos criados
+        // antes do cronograma persistido existir.
         const cycle = currentCard.activeCycle
         if (!cycle) {
           throw new Error("Nenhum ciclo de revisão ativo para este card")
         }
         const isLast = cycle.currentReview >= cycle.totalReviews
-        const plan = buildReviewSchedule(cycle.classification, new Date(cycle.baseDate))
+        const plan =
+          cycle.schedule && cycle.schedule.length > 0
+            ? cycle.schedule
+            : buildReviewSchedule(cycle.classification, new Date(cycle.baseDate)).map(
+                (s, i) => ({
+                  order: i + 1,
+                  scheduleDate: s.scheduleDate,
+                  isFinal: s.isFinal,
+                  completedAt: null,
+                })
+              )
+        const nextSchedule = plan[isLast ? cycle.currentReview - 1 : cycle.currentReview]
         setPendingCommit({
           kind: "CYCLE",
           answer: inputValue,
@@ -606,7 +622,7 @@ export function SRSReviewSession({
         setCompletedReviewNumber(cycle.currentReview)
         setLastDifficulty(cycle.classification)
         setAiFeedback(null)
-        setSchedulePreview([plan[isLast ? cycle.currentReview - 1 : cycle.currentReview].scheduleDate])
+        setSchedulePreview(nextSchedule ? [nextSchedule.scheduleDate] : [])
         setLastIsCycleCompleted(isLast)
         setFeedbackKind("CYCLE")
       } else {

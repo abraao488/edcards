@@ -71,6 +71,16 @@ export default async function FlashcardsPage({
             totalReviews: true,
             baseDate: true,
             status: true,
+            initialCycleEvaluationCompleted: true,
+            scheduledReviews: {
+              orderBy: { order: "asc" },
+              select: {
+                order: true,
+                scheduleDate: true,
+                isFinal: true,
+                completedAt: true,
+              },
+            },
           },
           orderBy: { createdAt: "desc" },
         },
@@ -218,6 +228,18 @@ async function loadQueueCards(dbUser: {
           totalReviews: true,
           baseDate: true,
           status: true,
+          // false = ciclo pré-agendado (ainda sem avaliação inicial).
+          initialCycleEvaluationCompleted: true,
+          // Cronograma persistido: é a verdade dos dias agendados.
+          scheduledReviews: {
+            orderBy: { order: "asc" },
+            select: {
+              order: true,
+              scheduleDate: true,
+              isFinal: true,
+              completedAt: true,
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -242,6 +264,13 @@ function formatQueueProgressCard(pc: {
     totalReviews: number
     baseDate: Date
     status: string
+    initialCycleEvaluationCompleted: boolean
+    scheduledReviews: {
+      order: number
+      scheduleDate: Date
+      isFinal: boolean
+      completedAt: Date | null
+    }[]
   }[]
   flashcard: {
     id: string
@@ -271,6 +300,13 @@ function formatQueueProgressCard(pc: {
           totalReviews: activeCycle.totalReviews,
           baseDate: activeCycle.baseDate,
           isFinal: activeCycle.currentReview >= activeCycle.totalReviews,
+          initialEvaluationCompleted: activeCycle.initialCycleEvaluationCompleted,
+          schedule: activeCycle.scheduledReviews.map((s) => ({
+            order: s.order,
+            scheduleDate: s.scheduleDate,
+            isFinal: s.isFinal,
+            completedAt: s.completedAt,
+          })),
         }
       : null,
     hasCompletedCycle: pc.reviewCycles.some((c) => c.status === "COMPLETED"),
