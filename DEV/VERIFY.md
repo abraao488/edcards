@@ -2,6 +2,70 @@
 
 Evidências por mudança. Só registre aqui o que foi **executado** e o resultado real.
 
+## 2026-10-20 — Cronograma reverso (revisão final + redistribuição)
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Tipos | `npx tsc --noEmit` | sem saída (sem erros) |
+| Lint | `npm run lint` | sem erros; 3 warnings pré-existentes (`configuracoes/client.tsx`, `profile-form.tsx`, `public-deck-view.tsx`) |
+| Build | `npm run build` | ok (prisma generate + next build) |
+| Política (puro) | `npx tsx scripts/schedule-plan-tests.ts` | **1482/1482** verificações |
+| End-to-end (banco real) | `npx tsx scripts/schedule-tests.ts` | **7/7** testes |
+| Render da tela | `npx tsx --tsconfig scripts/tsconfig.ui-tests.json scripts/schedule-ui-tests.tsx` | **12/12** verificações |
+| Regressão SRS | `npx tsx scripts/srs-tests-a-k.ts` | **19/19** (inalterado) |
+
+### Cobertura do harness do cronograma (S1–S6)
+
+- S1 — 5 assuntos, 40 dias até a prova, 7 de revisão final: 40 itens, 40 dias
+  com conteúdo (**nenhum dia vazio**), 7 dias finais com item e marcados como
+  `FINAL_REVIEW`, cada assunto estudado 1× e coberto pela revisão final,
+  estudo espalhado (último estudo depois do dia 20).
+- S2 — re-gerar apaga o cronograma anterior: 1 `StudySchedule`, 40 itens.
+- S3 — `reviewDays = 0` é rejeitado com mensagem clara.
+- S4 — data da prova próxima demais é rejeitada.
+- S5 — 30 assuntos em 20 dias: 2 itens por dia de estudo, 6 por dia de
+  revisão final, 20 dias com conteúdo.
+- S6 — o cronograma de outro usuário não é tocado (propriedade).
+- S7 — `getScheduleWithDetails` devolve o plano salvo (é o que a página
+  carrega): 40 itens, 40 dias com conteúdo, fases e relações intactas
+  depois da ida e volta ao banco.
+
+### Smoke de runtime da página `/edital` (servidor Next real)
+
+Executado com `next start` na porta 3111, usuário descartável criado no
+Supabase (admin) + assinatura no Prisma + plano salvo:
+
+| Cenário | Resultado |
+|---|---|
+| Assinatura ativa + plano salvo | **200** — renderiza "Cronograma do Edital", a matéria/assunto do usuário, os rótulos de fase e o resumo; o formulário **não** aparece |
+| Sem assinatura ativa | **307 → `/dashboard/configuracoes?upgrade=true`** (sem erro 500) |
+
+Ambos os usuários (Supabase + Prisma) foram removidos no final. Script
+temporário, não versionado.
+
+### Cobertura dos testes puros (1482 verificações)
+
+11 cenários (N de 1 a 200 assuntos, D de 1 a 100 dias, R de 1 a 30 dias) mais
+os testes de classificação, helpers e validação. Invariantes conferidos:
+nenhum dia vazio; todo assunto estudado exatamente 1×; todo assunto coberto
+pela revisão final; revisão intermediária só de assunto já estudado; dia de
+estudo sem assunto novo **sempre** tem revisão; estudo espalhado quando
+N < D; carga por dia equilibrada (≤1) no estudo e na revisão final; nenhum
+assunto repetido na revisão final quando N ≥ R; a data exibida não desloca o
+dia (off-by-one de fuso).
+
+### Efeito colateral
+
+Os harnesses criam usuários descartáveis no Postgres de produção e os removem
+no final (inclusive em caso de falha). Conferido após a execução:
+0 usuários `@edcards.test`, 0 `StudySchedule`, 0 `ScheduleItem`.
+
+### Validação humana pendente
+
+A tela `/edital` foi verificada por render do componente real (10 checagens de
+HTML), **não** por navegador logado. Confere visualmente o resultado na UI
+antes de publicar.
+
 ## 2026-10-20 — Agendamento manual de revisões
 
 | Gate | Comando | Resultado |

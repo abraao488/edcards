@@ -297,14 +297,16 @@ model AIChatMessage {
 }
 
 model StudySchedule {
-  id         String         @id @default(uuid())
-  userId     String
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  examDate   DateTime
-  totalDays  Int
-  startDate  DateTime
-  createdAt  DateTime       @default(now())
-  items      ScheduleItem[]
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  examDate  DateTime
+  /// Tamanho da janela de ESTUDO (não é o total do plano).
+  /// A janela de REVISÃO FINAL é derivada: [startDate + totalDays, examDate).
+  totalDays Int
+  startDate DateTime
+  createdAt DateTime @default(now())
+  items     ScheduleItem[]
 }
 
 model StudySession {

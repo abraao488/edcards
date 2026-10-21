@@ -53,3 +53,20 @@ CONSULTA: qualquer estado + isQuizMode → nenhuma escrita
   precisam estar marcadas como concluídas para não "roubar" a fila.
 - Scripts em `scripts/` rodam contra o **banco real**; o harness A–M cria e
   apaga um usuário descartável.
+
+## Cronograma reverso (Edital Fechado)
+
+- A política é **pura** e mora em `src/lib/schedule/plan.ts`:
+  `buildStudyPlan()` (3 fases: estudo espalhado, revisão intermediária,
+  revisão final) e `classifyScheduleItems()` (marcação).
+- `ScheduleItem` **não tem coluna `kind`**: a 1ª ocorrência do assunto é o
+  estudo, as seguintes são revisões; a janela de revisão final
+  (`[startDate + totalDays, examDate)`) sobrepõe essa regra.
+- `StudySchedule.totalDays` = **janela de estudo**, não o total do plano.
+- `ScheduleItem.scheduledFor` é `timestamp without time zone`: vale o que o
+  Prisma gravou (UTC); a chave do dia é `toDateKey` (fuso do servidor).
+- Datas são **dias de calendário**: `new Date("2026-10-20")` é meia-noite UTC
+  e exibe 19/10 em UTC-3. Use `formatDateKeyPtBr`.
+- Páginas de recurso premium usam `requireActiveSubscriptionForPage()`
+  (redireciona) — `requireActiveSubscriptionForAction()` lança e quebra o
+  render. Padrão em `/gerenciador` e agora em `/edital`.

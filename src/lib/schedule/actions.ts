@@ -4,11 +4,24 @@ import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/prisma"
 import { ensureUserExists } from "@/lib/auth/sync"
 import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
+import {
+  addDays,
+  buildStudyPlan,
+  classifyScheduleItems,
+  startOfDay,
+  toDateKey,
+  type ScheduleItemKind,
+  type SchedulePhase,
+} from "@/lib/schedule/plan"
 import type { ScheduleItem, Subject, Topic, StudySchedule } from "@prisma/client"
 
 type ScheduleItemWithRelations = ScheduleItem & {
   subject: Subject | null
   topic: Topic | null
+  /** Natureza do item: estudo de assunto novo ou revisão. Derivado na leitura. */
+  kind: ScheduleItemKind
+  /** Fase do plano: estudo, revisão intermediária ou revisão final. */
+  phase: SchedulePhase
 }
 
 export type ScheduleWithDetails = (StudySchedule & {
@@ -18,7 +31,32 @@ export type ScheduleWithDetails = (StudySchedule & {
   totalItems: number
 }) | null
 
+/**
+ * `revalidatePath` fora de um request (ex.: harness de testes) lança. A
+ * operação de banco já foi concluída — a invalidação de cache nunca pode
+ * transformar um cronograma bem-sucedido em erro para o usuário.
+ */
+function safeRevalidate(paths: string[]) {
+  for (const path of paths) {
+    try {
+      revalidatePath(path)
+    } catch {
+      // ambiente sem request context — ignora
+    }
+  }
+}
 
+/**
+ * Gera o cronograma reverso ("Edital Fechado").
+ *
+ * A janela vai de hoje até a VÉSPERA da prova e é dividida em três fases
+ * (ver `src/lib/schedule/plan.ts`): estudo, revisão intermediária e revisão
+ * final. Nenhum dia do plano fica vazio e todo assunto é revisado na fase
+ * final.
+ *
+ * @param examDate   data da prova
+ * @param reviewDays dias de revisão final (imediatamente antes da prova)
+ */
 export async function generateReverseSchedule(
   examDate: Date,
   reviewDays: number
@@ -26,12 +64,15 @@ export async function generateReverseSchedule(
   await requireActiveSubscriptionForAction()
   const user = await ensureUserExists()
 
-  // Get all topics for scheduling
+  if (!Number.isInteger(reviewDays) || reviewDays < 1) {
+    throw new Error("Informe ao menos 1 dia de revisão final!")
+  }
+  if (!(examDate instanceof Date) || Number.isNaN(examDate.getTime())) {
+    throw new Error("Data da prova inválida!")
+  }
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const examDateObj = new Date(examDate)
-  examDateObj.setHours(0, 0, 0, 0)
+  const today = startOfDay(new Date())
+  const examDateObj = startOfDay(examDate)
 
   const daysBetween = Math.ceil(
     (examDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
@@ -43,6 +84,8 @@ export async function generateReverseSchedule(
     )
   }
 
+  // Janela de ESTUDO. A janela de REVISÃO FINAL é o que sobra até a prova:
+  // [startDate + totalDays, examDate).
   const studyDays = daysBetween - reviewDays
 
   const allTopics = await prisma.topic.findMany({
@@ -70,39 +113,38 @@ export async function generateReverseSchedule(
     data: {
       userId: user.id,
       examDate: examDateObj,
+      // `totalDays` = tamanho da janela de ESTUDO. A revisão final é derivada
+      // dela: começa em `startDate + totalDays` e vai até a véspera da prova.
       totalDays: studyDays,
       startDate: today,
     },
   })
 
-  const topicsPerDay = Math.max(1, Math.ceil(allTopics.length / studyDays))
+  const plan = buildStudyPlan(
+    allTopics.map((topic) => ({ id: topic.id, subjectId: topic.subjectId })),
+    studyDays,
+    reviewDays
+  )
+
   const items: {
     scheduleId: string
     subjectId?: string
     topicId?: string
     scheduledFor: Date
-  }[] = []
-
-  for (let i = 0; i < studyDays; i++) {
-    const scheduledDate = new Date(today)
-    scheduledDate.setDate(today.getDate() + i)
-
-    const startIndex = i * topicsPerDay
-    const endIndex = startIndex + topicsPerDay
-    const dayTopics = allTopics.slice(startIndex, endIndex)
-
-    for (const topic of dayTopics) {
-      items.push({
-        scheduleId: schedule.id,
-        subjectId: topic.subjectId,
-        topicId: topic.id,
-        scheduledFor: scheduledDate,
-      })
-    }
-  }
+  }[] = plan.map((planItem) => ({
+    scheduleId: schedule.id,
+    subjectId: planItem.topic.subjectId,
+    topicId: planItem.topic.id,
+    scheduledFor: addDays(today, planItem.dayIndex),
+  }))
 
   if (items.length > 0) {
-    await prisma.scheduleItem.createMany({ data: items })
+    const CHUNK_SIZE = 1000
+    for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+      await prisma.scheduleItem.createMany({
+        data: items.slice(i, i + CHUNK_SIZE),
+      })
+    }
   }
 
   const scheduleDetails = await getScheduleWithDetails(schedule.id)
@@ -110,9 +152,7 @@ export async function generateReverseSchedule(
     throw new Error("Erro ao criar cronograma!")
   }
 
-  revalidatePath("/edital")
-  revalidatePath("/dashboard")
-  revalidatePath("/gerenciador")
+  safeRevalidate(["/edital", "/dashboard", "/gerenciador"])
 
   return {
     ...scheduleDetails,
@@ -149,16 +189,20 @@ export async function getScheduleWithDetails(
   const subjectMap = new Map(allSubjects.map((s) => [s.id, s]))
   const topicMap = new Map(allTopics.map((t) => [t.id, t]))
 
-  const itemsWithRelations: ScheduleItemWithRelations[] = schedule.items.map(
-    (item) => ({
+  // Sem coluna `kind` no banco: o item é ESTUDO na primeira ocorrência do
+  // assunto e REVISÃO nas seguintes. A janela de revisão final é derivada de
+  // `startDate + totalDays` até a data da prova.
+  const itemsWithRelations = classifyScheduleItems(
+    schedule.items.map((item) => ({
       ...item,
       subject: item.subjectId ? subjectMap.get(item.subjectId) || null : null,
       topic: item.topicId ? topicMap.get(item.topicId) || null : null,
-    })
+    })),
+    { startDate: schedule.startDate, studyDays: schedule.totalDays }
   )
 
   const groupedByDay = itemsWithRelations.reduce((acc, item) => {
-    const dateKey = item.scheduledFor.toISOString().split("T")[0]
+    const dateKey = toDateKey(item.scheduledFor)
     if (!acc[dateKey]) {
       acc[dateKey] = []
     }
@@ -205,6 +249,5 @@ export async function markScheduleItemCompleted(itemId: string) {
     data: { completed: true },
   })
 
-  revalidatePath("/edital")
-  revalidatePath("/dashboard")
+  safeRevalidate(["/edital", "/dashboard"])
 }

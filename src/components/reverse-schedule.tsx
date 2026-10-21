@@ -69,7 +69,8 @@ export function ReverseSchedule() {
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
         Defina a data da prova e a quantidade de dias para revisão. O sistema
-        distribuirá todos os assuntos uniformemente.
+        espalha os assuntos ao longo de todo o período de estudo e reserva os
+        dias finais para a revisão de tudo.
       </p>
 
       <div className="space-y-4">

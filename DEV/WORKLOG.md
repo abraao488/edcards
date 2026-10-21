@@ -1,5 +1,42 @@
 # WORKLOG
 
+## 2026-10-20 — Cronograma reverso: revisão final + redistribuição
+
+**Por quê:** os "dias de revisão final" eram só subtraídos da janela de estudo
+(`studyDays = daysBetween - reviewDays`) e nunca viravam `ScheduleItem`; e a
+distribuição preenchia pela frente (`slice` por bloco), deixando dezenas de
+dias vazios no meio do plano. A promessa "cronograma até a prova" não era
+cumprida pelo banco.
+
+**O que mudou:**
+
+| Arquivo | Mudança |
+|---|---|
+| `src/lib/schedule/plan.ts` (novo) | Política pura: `buildStudyPlan` (3 fases: estudo espalhado / revisão intermediária / revisão final), `classifyScheduleItems` (ESTUDO x REVISÃO sem coluna nova), helpers de data (`toDateKey`, `formatDateKeyPtBr`) |
+| `src/lib/schedule/actions.ts` | Usa o plano; valida `reviewDays` e a data; grava em lotes; devolve `kind`/`phase`; `safeRevalidate` no lugar de `revalidatePath` cru |
+| `src/app/edital/client.tsx` | Rótulos de fase por dia, tag "Revisão" por item, resumo do plano, **corrige o off-by-one da data exibida**; aceita `initialSchedule` |
+| `src/components/reverse-schedule.tsx` | Copy alinhada ao novo comportamento |
+| `scripts/schedule-plan-tests.ts` (novo) | 1482 verificações puras dos invariantes (sem banco) |
+| `scripts/schedule-tests.ts` (novo) | Harness end-to-end no banco real (6 testes, usuário descartável) |
+| `scripts/schedule-ui-tests.tsx` (novo) | Render real do componente do cliente (10 verificações) |
+| `scripts/tsconfig.ui-tests.json` (novo) | `jsx: react-jsx` para o harness de render |
+
+**Decisões do maestro:** derivar a marcação na leitura (sem migration no
+Neon) · revisão final cobre todos os assuntos · dia vazio vira revisão
+intermediária.
+
+**Verificação:** `npx tsc --noEmit` limpo · `npm run lint` sem warnings novos ·
+`npm run build` ok · harness do cronograma 7/7 · testes puros 1482/1482 ·
+render 12/12 · harness A–M 19/19 (sem regressão) · smoke de runtime em
+`/edital` autenticado (200 com o plano salvo) e sem assinatura (307 → upgrade).
+
+**Recarga do cronograma salvo (mesmo dia):** `/edital` passou a buscar o
+`StudySchedule` mais recente e passar para `EditalClient` via
+`initialSchedule`; a página usa `requireActiveSubscriptionForPage()` (padrão
+do `/gerenciador`) porque o recurso é premium. Título da tela trocado para
+"Cronograma do Edital" (vale tanto para o plano recém-gerado quanto para o
+recarregado) e o resumo passou a mostrar "criado em".
+
 ## 2026-10-20 — Agendamento manual de revisões (Gerenciador)
 
 **Por quê:** `scheduleTopicReviews()` só usava `reviewDays[0]`; os arrays
