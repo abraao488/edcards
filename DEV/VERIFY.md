@@ -2,6 +2,25 @@
 
 Evidências por mudança. Só registre aqui o que foi **executado** e o resultado real.
 
+## 2026-10-22 — Baseline de migrations (fecha P0.1)
+
+| Verificação | Comando | Resultado |
+|---|---|---|
+| Drift produção ↔ schema (antes) | `prisma migrate diff --from-url <produção> --to-schema-datamodel prisma/schema.prisma --exit-code` | **No difference detected** (exit 0) — baseline bate com produção |
+| Baseline gerado | `prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script` (UTF-8 sem BOM) | `prisma/migrations/20261022_000000_baseline/migration.sql` (18 023 chars) |
+| **Teste 1 — deploy em banco novo vazio** | `prisma migrate deploy` (banco descartável recém-criado) | **sucesso** — "All migrations have been successfully applied" |
+| Teste 1 — schema reproduzido | `prisma migrate diff --from-url <novo> --to-schema-datamodel prisma/schema.prisma --exit-code` | **No difference detected** (exit 0) |
+| **Teste 2 — simula produção** (schema existe, sem `_prisma_migrations`) | `db execute` do baseline (schema manual) → `migrate resolve --applied 20261022_000000_baseline` | **"marked as applied"** (sem DDL) |
+| Teste 2 — deploy vira no-op | `prisma migrate deploy` | **"No pending migrations to apply"** |
+| Teste 2 — status | `prisma migrate status` | **"Database schema is up to date!"** |
+| **Produção real** | `prisma migrate resolve --applied 20261022_000000_baseline` (sem DDL) | **"marked as applied"** |
+| Produção — status final | `prisma migrate status` | **"Database schema is up to date!"** (1 migration, `_prisma_migrations` criada) |
+| Gate de tipos | `npx tsc --noEmit` | **0 erros** (nenhum `src/` alterado) |
+
+7 bancos descartáveis usados nos testes foram removidos com
+`DROP DATABASE ... WITH (FORCE)`. Produção: schema intocado, apenas histórico
+registrado.
+
 ## 2026-10-22 — Auditoria de prontidão (projeto inteiro)
 
 Auditoria completa do repositório: gates, harnesses, banco real, runtime

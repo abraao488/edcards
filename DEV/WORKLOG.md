@@ -1,5 +1,56 @@
 # WORKLOG
 
+## 2026-10-22 — Baseline de migrations (fecha P0.1 da auditoria)
+
+**Por quê:** o banco de produção foi construído via `prisma db push` (sem
+histórico) e as 5 migrations existentes eram **incrementais** — nenhuma criava
+as ~21 tabelas base. Resultado: `prisma migrate deploy` falhava em banco novo
+(`relation "Subscription" does not exist`) e `_prisma_migrations` não existia
+em produção. Nenhum ambiente novo (preview, CI, DR, outra máquina) podia ser
+provisionado.
+
+**Decisão do maestro:** **baseline consolidado único** — substituir as 5
+incrementais por UMA migration gerada do `schema.prisma` atual. Garante casar
+100% com produção (auditoria já provou drift zero) e `migrate deploy` num banco
+novo reproduz o schema inteiro. (Alternativa descartada: reconstruir o schema
+"antes das 5" — maior risco de divergência sutil de defaults/ordem.)
+
+**O que mudou:**
+
+| Arquivo | Mudança |
+|---|---|
+| `prisma/migrations/20260902_add_pix_fields_to_subscription/` (removido) | Incremental — conteúdo absorvido pelo baseline |
+| `prisma/migrations/20260902_add_session_history_fields/` (removido) | Idem |
+| `prisma/migrations/20260902_add_user_id_to_subject/` (removido) | Idem |
+| `prisma/migrations/20261012_add_pending_mercadopago_id/` (removido) | Idem |
+| `prisma/migrations/20261019_add_growth_features/` (removido) | Idem |
+| `prisma/migrations/20261022_000000_baseline/migration.sql` (novo) | Baseline gerado via `prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script` (UTF-8 sem BOM). Cria todas as tabelas/enums/índices/FKs do schema atual. |
+
+Nenhum `src/` nem `schema.prisma` foi alterado.
+
+**Procedimento (testado em descartável ANTES de tocar em produção):**
+
+1. Removidas as 5 incrementais; baseline gerado (encoding UTF-8 — o redirect
+   do PowerShell `>` gera UTF-16 com BOM, que quebra o driver; gerado via Node
+   `writeFileSync(..., 'utf8')`).
+2. **Teste 1 (banco novo vazio):** `prisma migrate deploy` → aplicou o baseline
+   com sucesso; `migrate diff --from-url <novo> --to-schema-datamodel` → *"No
+   difference detected"* (schema novo == schema.prisma == produção).
+3. **Teste 2 (simula produção):** banco descartável com o schema aplicado
+   manualmente (`db execute` do baseline, sem `_prisma_migrations`) →
+   `migrate resolve --applied 20261022_000000_baseline` (marcou, sem DDL) →
+   `migrate deploy` → *"No pending migrations to apply"* → `migrate status` →
+   *"Database schema is up to date!"*.
+4. **Produção real:** `prisma migrate resolve --applied
+   20261022_000000_baseline` (sem DDL) → `prisma migrate status` → *"Database
+   schema is up to date!"*. Confirmei drift zero produção↔schema ANTES de
+   resolver (`migrate diff --from-url <prod> --to-schema-datamodel` → *"No
+   difference detected"*).
+
+**Verificação:** Teste 1 e 2 verdes no descartável; produção com histórico
+registrado e schema intocado; 7 bancos descartáveis removidos com `DROP
+DATABASE ... WITH (FORCE)`; `npx tsc --noEmit` 0 erros (nenhum `src/` mudou).
+
 ## 2026-10-22 — Auditoria de prontidão do projeto inteiro
 
 **Por quê:** o maestro pediu uma verificação completa ("está pronto agora ou

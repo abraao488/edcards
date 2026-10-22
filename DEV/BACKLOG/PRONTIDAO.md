@@ -7,8 +7,16 @@ Ordenado por severidade. Cada item tem evidência reproduzível.
 
 ## P0 — Histórico de migration não é reproduzível
 
-**Estado:** bloqueia qualquer ambiente novo (outro banco Neon, preview, CI, outra
-máquina, restauração de desastre).
+**Estado: RESOLVIDO (2026-10-22).** Ver `WORKLOG.md` → "Baseline de
+migrations". Substituí as 5 incrementais por um baseline consolidado único
+(`prisma/migrations/20261022_000000_baseline/`) gerado do `schema.prisma`
+atual. Testado em banco descartável (deploy em banco novo → schema completo;
+simulação de produção com `resolve --applied` → no-op) e aplicado na produção
+real via `migrate resolve --applied` (sem DDL). `prisma migrate status` →
+*"Database schema is up to date!"*.
+
+<details>
+<summary>Evidência original do problema (mantida para referência)</summary>
 
 **Evidência**
 
@@ -38,6 +46,12 @@ máquina, restauração de desastre).
 4. `prisma migrate deploy` no banco de produção para registrar o histórico.
 
 > Atenção: o passo 4 escreve em produção. Fazer com backup e janela.
+
+**(Implementado com o método acima, variante "baseline consolidado único";
+o passo 4 foi `migrate resolve --applied`, não `deploy` — sem DDL, sem janela
+necessária.)**
+
+</details>
 
 ---
 
