@@ -15,7 +15,8 @@ Subpastas válidas (não renomear sem atualizar este índice):
 
 | Arquivo | Conteúdo |
 |---|---|
-| `SPECS/ACTIVE.md` | Especificação ativa (cronograma reverso: revisão final + redistribuição) |
+| `SPECS/ACTIVE.md` | Especificação ativa (reorganização da fila: campo certo, ciclo ativo preservado, sem take:200) |
+| `SPECS/2026-10-20-cronograma-reverso.md` | Spec arquivada (cronograma reverso: revisão final + redistribuição) |
 | `SPECS/2026-10-20-agendamento-manual-revisoes.md` | Spec arquivada (agendamento manual de revisões) |
 | `CONTEXT.md` | Arquitetura relevante, decisões estruturais, armadilhas conhecidas |
 | `WORKLOG.md` | Entradas curtas das mudanças recentes |
@@ -29,6 +30,7 @@ npx tsc --noEmit          # tipos
 npm run lint              # eslint (warnings pré-existentes são tolerados)
 npm run build             # gate do projeto: prisma generate + next build
 npx tsx scripts/srs-tests-a-k.ts   # harness A–M do SRS (banco real, usuário descartável)
+npx tsx scripts/organize-tests.ts  # harness O1–O9 da reorganização (banco real, usuário descartável)
 npx tsx scripts/schedule-plan-tests.ts   # política do cronograma (puro, sem banco)
 npx tsx scripts/schedule-tests.ts        # cronograma end-to-end (banco real, usuário descartável)
 npx tsx --tsconfig scripts/tsconfig.ui-tests.json scripts/schedule-ui-tests.tsx  # render da tela

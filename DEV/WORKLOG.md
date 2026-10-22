@@ -1,5 +1,29 @@
 # WORKLOG
 
+## 2026-10-22 — Reorganização da fila: campo certo, ciclo ativo preservado, sem take:200
+
+**Por quê:** "Organizar cards atrasados" escrevia em `Flashcard.nextReview`
+(campo que a fila do SRS **não** lê — só movia badges), reescrevia a
+`ProgressCard.nextReviewDate` de card com `ReviewCycle` ACTIVE (dessincronizando
+a fila do cronograma persistido) e truncava em `take: 200` sem paginação
+(cards além disso nunca eram reorganizados).
+
+**O que mudou:**
+
+| Arquivo | Mudança |
+|---|---|
+| `src/lib/flashcards/organize-core.ts` (novo) | Núcleo (não é Server Action): leitura paginada por cursor em `id` **sem teto**; filtro `reviewCycles: { none: { status: "ACTIVE" } }` na leitura e dentro do `updateMany` (rede de segurança contra corrida); prioridade HARD → MEDIUM → EASY (rank explícito — `orderBy` de string dava o inverso); 5/dia; escrita em lote por data alvo (2 `updateMany` por data) em transações de 100 datas |
+| `src/lib/flashcards/organize-actions.ts` | Perfil resolvido com a **mesma** regra da fila (`activeProfileId \|\| isActiveProfile \|\| profiles[0]`); `safeRevalidate`; devolve `{ count, skippedActiveCycles }`; N+1 → lote |
+| `src/lib/flashcards/organize.ts` | Wrapper `@deprecated` da mesma implementação (escreve no campo certo; era `take: 200` + campo errado) |
+| `src/app/organizar/client.tsx` | Reporta quantos cards ficaram preservados por estar em ciclo ativo |
+| `scripts/organize-tests.ts` (novo) | 9 testes no banco real: sem ciclo, ciclo ativo, ciclo encerrado, contagem, paginação (250 cards), prioridade, fila, propriedade, Server Action |
+
+**Verificação:** `npx tsc --noEmit` limpo · `npm run lint` sem warnings novos ·
+`npm run build` ok · harness A–M **19/19** (inalterado) · harness da
+reorganização **9/9** · cronograma 1482/1482 e 7/7 · os 2 testes novos foram
+provados capable de falhar (revertendo o guard do ciclo → O2/O4/O7/O9 falham;
+revertendo a paginação → O5 falha).
+
 ## 2026-10-20 — Cronograma reverso: revisão final + redistribuição
 
 **Por quê:** os "dias de revisão final" eram só subtraídos da janela de estudo

@@ -25,6 +25,24 @@ Três fontes, e elas precisam concordar:
 `CYCLES` é **não-cumulativa**: HARD = +1, +2, +7, +30, +60, +90 dias a partir da
 data-base. A mesma convenção vale para o agendamento manual (`offset`).
 
+### Invariante: `nextReviewDate` × ciclo ativo
+
+Para card com **`ReviewCycle` ACTIVE**, `ProgressCard.nextReviewDate` não é
+uma data livre — ela espelha a `ScheduledReview` **pendente** (o cronograma
+persistido é a verdade). Quem escreve a fila escreve as duas coisas juntas
+(`createCycleInternal`, `completeCycleReview`, `adoptPreScheduledCycle`,
+`skipFlashcard` em `src/lib/srs.ts`).
+
+- **Quem reorganiza a fila ("Organizar cards atrasados") NÃO pode reescrever
+  essa data.** Reescrever dessincroniza a fila do cronograma e quebra os
+  intervalos do ciclo. O filtro é `reviewCycles: { none: { status: "ACTIVE" } }`
+  — aplicado na leitura **e** dentro do `updateMany` (rede de segurança contra
+  corrida). Ver `src/lib/flashcards/organize-core.ts`.
+- `Flashcard.nextReview` é o **espelho** denormalizado (só badges de "devidos").
+  Ele nunca é a verdade da fila — mover só o espelho não muda a fila.
+- O perfil ativo tem uma regra única, compartilhada pela fila e pela
+  reorganização: `activeProfileId || isActiveProfile || profiles[0]`.
+
 ## Máquina de estados do card
 
 Definida em `deriveReviewState` (`src/lib/srs-review-utils.ts`) — fonte única,

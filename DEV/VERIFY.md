@@ -2,6 +2,52 @@
 
 Evidências por mudança. Só registre aqui o que foi **executado** e o resultado real.
 
+## 2026-10-22 — Reorganização da fila (campo certo, ciclo ativo preservado, sem take:200)
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Tipos | `npx tsc --noEmit` | sem saída (sem erros) |
+| Lint | `npm run lint` | sem erros; 3 warnings pré-existentes (`configuracoes/client.tsx`, `profile-form.tsx`, `public-deck-view.tsx`) |
+| Build | `npm run build` | ok (prisma generate + next build) |
+| Reorganização (banco real) | `npx tsx scripts/organize-tests.ts` | **9/9** testes |
+| Regressão SRS (A–M) | `npx tsx scripts/srs-tests-a-k.ts` | **19/19** (A–L + M1–M7, inalterado) |
+| Política do cronograma (puro) | `npx tsx scripts/schedule-plan-tests.ts` | **1482/1482** verificações |
+| Cronograma end-to-end | `npx tsx scripts/schedule-tests.ts` | **7/7** testes |
+
+### Baseline antes da mudança
+
+`npx tsx scripts/srs-tests-a-k.ts` → **19/19** (mesmo resultado depois).
+
+### Cobertura do harness da reorganização (O1–O9)
+
+| Teste | Verifica |
+|---|---|
+| O1 | card sem ciclo e atrasado é reprogramado (`nextReviewDate` + espelho `Flashcard.nextReview`) |
+| O2 | card com ciclo ACTIVE **não** é tocado: `nextReviewDate` continua espelhando a `ScheduledReview` pendente (ambos intocados) |
+| O3 | card com ciclo encerrado pode ser reorganizado; o ciclo continua `COMPLETED` |
+| O4 | `skippedActiveCycles` = 1 (conta só os preservados) |
+| O5 | paginação: **250** cards atrasados → `count = 250` e 0 cards continuam atrasados (o teto antigo era 200) |
+| O6 | prioridade HARD antes de EASY (rank explícito; `orderBy` de string dava o inverso) |
+| O7 | a fila do SRS deixa de ver o card sem ciclo como atrasado; só o de ciclo ativo permanece (é o ciclo que manda) |
+| O8 | card de outro usuário não é tocado |
+| O9 | a Server Action usa o perfil ativo e devolve `{ count, skippedActiveCycles }` |
+
+### Prova de que os testes novos pegam o bug (mutação temporária, revertida)
+
+| Mutação aplicada | Resultado |
+|---|---|
+| removido o filtro `reviewCycles: { none: { status: "ACTIVE" } }` | **5/9** — falham O2 (`nextReviewDate` deixou de espelhar a pendente: `2026-10-21` → `2026-10-22`), O4, O7, O9 |
+| leitura interrompida após a 1ª página (simula `take: 200` sem paginação) | **8/9** — falha O5 |
+
+### Efeito colateral
+
+Os harnesses criam usuários descartáveis no Postgres de produção e os removem
+no final. O harness da reorganização registra os usuários descartáveis em uma
+lista e limpa **mesmo quando uma asserção falha** (verificado: com a paginação
+quebrada de propósito, sobraram **0** usuários de teste no banco). Nenhum dado
+de usuário real foi tocado: todos os cards exercitados pertencem a usuários
+`test-organize-*` / `test-*` criados e apagados pelo próprio harness.
+
 ## 2026-10-20 — Cronograma reverso (revisão final + redistribuição)
 
 | Gate | Comando | Resultado |

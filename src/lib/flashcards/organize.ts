@@ -1,58 +1,19 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
-import { prisma } from "@/lib/prisma"
-import { ensureUserExists } from "@/lib/auth/sync"
-import { requireActiveSubscriptionForAction } from "@/lib/subscription/guard"
+import { organizeOverdueCards } from "@/lib/flashcards/organize-actions"
 
+/**
+ * @deprecated Use `organizeOverdueCards` (de `@/lib/flashcards/organize-actions`).
+ *
+ * Esta versão escrevia em `Flashcard.nextReview` — campo que a fila do SRS
+ * NÃO lê (a fila lê `ProgressCard.nextReviewDate`). O efeito real era só
+ * mexer nos badges de "cards devidos" enquanto a fila continuava igual, e
+ * ainda truncava o conjunto em `take: 200` sem paginação.
+ *
+ * Agora é apenas um wrapper da mesma implementação: uma única fonte de
+ * verdade, escrita no campo certo, sem tocar card com ciclo ativo.
+ */
 export async function redistributeOverdueCards() {
-  await requireActiveSubscriptionForAction()
-  const user = await ensureUserExists()
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  const overdueCards = await prisma.flashcard.findMany({
-    where: {
-      deck: { userId: user.id },
-      nextReview: { lt: today },
-    },
-    include: {
-      reviews: {
-        orderBy: { date: "desc" },
-        take: 5,
-      },
-    },
-    take: 200,
-  })
-
-  const sorted = overdueCards.sort((a, b) => {
-    const aHardCount = a.reviews.filter((r) => r.difficultyLevel === "HARD").length
-    const bHardCount = b.reviews.filter((r) => r.difficultyLevel === "HARD").length
-    return bHardCount - aHardCount
-  })
-
-  const CHUNK_SIZE = 50
-  for (let i = 0; i < sorted.length; i += CHUNK_SIZE) {
-    const chunk = sorted.slice(i, i + CHUNK_SIZE)
-    const updates = chunk.map((card, idx) => {
-      const daysFromNow = Math.floor((i + idx) / 10)
-      const nextDate = new Date(today)
-      nextDate.setDate(nextDate.getDate() + daysFromNow)
-
-      return prisma.flashcard.update({
-        where: { id: card.id },
-        data: { nextReview: nextDate },
-      })
-    })
-    await prisma.$transaction(updates)
-  }
-
-  revalidatePath("/dashboard")
-  revalidatePath("/dashboard/flashcards")
-  revalidatePath("/flashcards")
-  revalidatePath("/organizar")
-  revalidatePath("/gerenciador")
-
-  return { redistributed: sorted.length }
+  const { count } = await organizeOverdueCards()
+  return { redistributed: count }
 }

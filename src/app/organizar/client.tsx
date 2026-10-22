@@ -22,7 +22,11 @@ export function OrganizarClient() {
     setIsOrganizing(true)
     try {
       const result = await organizeOverdueCards()
-      setSuccessMessage(`${result.count} cards reorganizados com sucesso!`)
+      const preserved =
+        result.skippedActiveCycles > 0
+          ? ` ${result.skippedActiveCycles} card(s) em ciclo ativo foram preservados.`
+          : ""
+      setSuccessMessage(`${result.count} cards reorganizados com sucesso!${preserved}`)
       setIsModalOpen(false)
     } catch (error) {
       console.error(error)

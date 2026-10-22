@@ -1,98 +1,113 @@
-# SPEC ATIVA — Cronograma reverso: revisão final + redistribuição (Edital Fechado)
+# SPEC ATIVA — Reorganização da fila: campo certo, ciclo ativo preservado, sem take:200
 
-Status: **implementada e verificada** (2026-10-20)
-Área: `src/lib/schedule/plan.ts` (novo), `src/lib/schedule/actions.ts`,
-`src/app/edital/client.tsx`, `scripts/schedule-*.ts(x)`
+Status: **implementada e verificada** (2026-10-22)
+Área: `src/lib/flashcards/organize-core.ts` (novo),
+`src/lib/flashcards/organize-actions.ts`, `src/lib/flashcards/organize.ts`,
+`src/app/organizar/client.tsx`, `scripts/organize-tests.ts` (novo)
 
 ## Problema
 
-`generateReverseSchedule` quebrava a promessa central do produto
-("cronograma até a prova") de dois jeitos:
-
-1. **Os dias de revisão final nunca viravam `ScheduleItem`.** O bloco de
-   revisão era só *subtraído* da janela de estudo
-   (`studyDays = daysBetween - reviewDays`) e o laço `for (i < studyDays)`
-   nunca o percorria. O campo "Dias para Revisão Final" da UI prometia
-   dias que não existiam no banco — e o `StudySchedule` nem guardava
-   `reviewDays`, então nem a UI conseguia saber quais dias eram de revisão.
-2. **Dezenas de dias vazios no meio do plano.** A distribuição era
-   "preencher pela frente": `topicsPerDay = ceil(N/D)` e o dia `i` recebia
-   o bloco contíguo `slice(i*topicsPerDay, (i+1)*topicsPerDay)`. Com poucos
-   assuntos (N < D) tudo caía nos primeiros N dias e os D−N dias restantes
-   ficavam sem item; com N > D sobrava uma cauda vazia.
+A ação "Organizar cards atrasados" (`/organizar`) escrevia no campo errado e
+quebrava o cronograma de cards que já estavam em ciclo.
 
 ## Causa raiz
 
-- **Estrutural:** o modelo só tem um tipo de item (`subjectId`+`topicId` =
-  "estudar este assunto neste dia") e **não existe o conceito de dia
-  vazio** — um dia só existe se tiver ≥1 item. Não havia "item de revisão"
-  nem "item de dia genérico", então todo dia que não fosse de assunto novo
-  simplesmente não era gerado. Não era um `if` faltando no laço: faltava
-  o conceito e a política.
-- **De distribuição:** a posição do dia vinha de um índice de bloco
-  (contíguo, sempre a partir do dia 0), não de uma proporção sobre a
-  janela. Preencher pela frente é o oposto de "espalhar no período".
+O sistema tem **duas** datas paralelas e elas precisam concordar:
+
+| Campo | Papel | Lido por |
+|---|---|---|
+| `ProgressCard.nextReviewDate` | **verdade da fila** | fila do SRS (`/dashboard/flashcards/[deckId]`, `getReviewQueueCount`, `getUpcomingFlashcards`, métricas do dashboard) |
+| `Flashcard.nextReview` | espelho denormalizado | só badges de "devidos" (`/dashboard/flashcards` dueCount, `/dashboard/configuracoes` cardsDue) |
+
+Para card **com ciclo ativo**, `nextReviewDate` NÃO é uma data livre: ela
+espelha a `ScheduledReview` pendente (o cronograma persistido é a verdade —
+`createCycleInternal`, `completeCycleReview`, `adoptPreScheduledCycle` e
+`skipFlashcard` em `src/lib/srs.ts` mantêm esse invariante).
+
+### Os quatro defeitos
+
+1. **`organize.ts` escrevia no espelho, não na verdade.** `redistributeOverdueCards()`
+   lia e escrevia `Flashcard.nextReview`. A fila do SRS lê
+   `ProgressCard.nextReviewDate` → o efeito real era só mover os badges
+   enquanto a fila continuava intacta. A ação "não reorganizava nada de útil".
+2. **`organize-actions.ts` reescrevia a data de card em ciclo ativo.** Sem
+   filtro por `ReviewCycle.status`, cards com ciclo ACTIVE entravam na
+   redistribuição; a `nextReviewDate` deixava de espelhar a `ScheduledReview`
+   pendente → fila e cronograma dessincronizados e intervalos do ciclo
+   (HARD = +1, +2, +7, +30, +60, +90 dias) quebrados.
+3. **`take: 200` sem paginação e sem `orderBy`.** Cards além dos 200
+   primeiros nunca eram reorganizados, e *quais* 200 vinham era
+   não-determinístico (sem ordenação).
+4. **Perfil divergente da fila.** A ação resolvia o perfil por
+   `isActiveProfile: true`; a fila resolve por `activeProfileId || isActiveProfile ||
+   profiles[0]`. Podia reorganizar o perfil errado.
+
+### Defeitos secundários encontrados no caminho
+
+- **Prioridade invertida:** `orderBy: { difficultyStage: "desc" }` ordena a
+  *string*, e `"MEDIUM" > "HARD" > "EASY"` — o oposto do comentário
+  ("HARD comes first"). Agora há rank explícito.
+- **N+1 sem transação:** `organize-actions.ts` fazia um `update` por card, um
+  por round-trip, sem transação (falha no meio deixava a fila meio
+  reorganizada).
 
 ## Decisões (maestro)
 
 | Decisão | Escolha |
 |---|---|
-| Como marcar o item de revisão | **Derivar na leitura** — sem migration no Neon |
-| Cobertura da revisão final | **Todos os assuntos** (promessa do produto) |
-| Dias vazios da fase de estudo | **Revisão intermediária** (1 assunto/dia) |
+| Escopo da reorganização | só card **sem ciclo ativo** (ou com ciclo já encerrado) |
+| Card em ciclo ativo | **preservado** e reportado (`skippedActiveCycles`) |
+| `organize.ts` | **redirecionado** (wrapper da mesma implementação), não removido |
+| Leitura | paginação por cursor em `id`, **sem teto** |
+| Escrita | lote por data alvo (`updateMany`), em transação |
 
 ## Escopo entregue
 
-- `src/lib/schedule/plan.ts` (novo, puro): `buildStudyPlan()` (política de
-  distribuição) + `classifyScheduleItems()` (marcação) + helpers de data.
-- Três fases: **ESTUDO** (spread proporcional), **REVISÃO INTERMEDIÁRIA**
-  (dias de estudo sem assunto novo) e **REVISÃO FINAL** (últimos R dias).
-- `generateReverseSchedule` valida `reviewDays` (≥1) e a data da prova, usa
-  o plano, grava em lotes de 1000 e devolve `kind`/`phase` por item.
-- `getScheduleWithDetails` classifica os itens na leitura.
-- UI: rótulos de fase por dia, tag "Revisão" por item, resumo do plano
-  (dias de estudo / de revisão final / total de itens) e **correção do
-  off-by-one** na data exibida (`new Date("2026-10-20")` era meia-noite UTC
-  e mostrava 19/10 em UTC-3).
-- `safeRevalidate` no lugar de `revalidatePath` cru (fora de um request
-  ele lançava depois da escrita no banco).
-- **`/edital` recarrega o cronograma salvo**: a página busca o `StudySchedule`
-  mais recente e passa para `EditalClient` via `initialSchedule`. O recurso
-  é premium, então a página usa `requireActiveSubscriptionForPage()`
-  (redireciona para upgrade) — mesmo padrão do `/gerenciador`.
-
-## Regras de distribuição
-
-- **ESTUDO:** assunto `k` (0-based) → dia `floor(k * D / N)`.
-  N ≥ D → todo dia de estudo tem ≥1 assunto, carga difere em ≤1.
-  N < D → os assuntos ficam espalhados (N=5, D=60 → dias 0, 12, 24, 36, 48).
-- **REVISÃO INTERMEDIÁRIA:** cada dia de estudo sem assunto novo recebe a
-  revisão do assunto já estudado mais esquecido (revisão mais antiga;
-  desempate: o mais antigo). Só se revisa o que já caiu.
-- **REVISÃO FINAL:** todos os assuntos entram na cobertura final. N ≥ R →
-  cada assunto 1×, carga por dia difere em ≤1; N < R → cada dia revisa um
-  assunto em ciclo (todos pelo menos 1×).
+- `src/lib/flashcards/organize-core.ts` (novo, **não** é Server Action):
+  - leitura paginada por cursor em `id` (`id` nunca é mutado → a posição do
+    cursor é estável entre páginas; `nextReviewDate`, que é mutado, ficou
+    fora da ordenação);
+  - filtro `reviewCycles: { none: { status: "ACTIVE" } }` na leitura **e**
+    dentro do `updateMany` (rede de segurança contra corrida: card que entrou
+    em ciclo entre a leitura e a escrita é preservado de novo);
+  - prioridade HARD → MEDIUM → EASY, depois o mais atrasado primeiro, `id`
+    desempata (determinismo);
+  - 5 cards/dia a partir de hoje; escrita agrupada por data alvo (um
+    `updateMany` de `ProgressCard` + o espelho `Flashcard.nextReview` por
+    data), em transações de até 100 datas.
+- `src/lib/flashcards/organize-actions.ts`: perfil resolvido com a **mesma**
+  regra da fila; `safeRevalidate`; devolve `{ count, skippedActiveCycles }`.
+- `src/lib/flashcards/organize.ts`: wrapper `@deprecated` da mesma
+  implementação (uma única fonte de verdade, campo certo).
+- `src/app/organizar/client.tsx`: reporta quantos cards foram preservados.
+- `scripts/organize-tests.ts` (novo): 9 testes no banco real.
 
 ## Critérios de aceite
 
-- [x] Todo dia de hoje até a véspera da prova tem ≥1 item (zero dias vazios).
-- [x] Todo assunto é estudado exatamente uma vez.
-- [x] Todo assunto é revisado na fase de revisão final.
-- [x] A revisão intermediária nunca revisa assunto ainda não estudado.
-- [x] `reviewDays` inválido (< 1) é rejeitado com mensagem clara.
-- [x] Re-gerar substitui o cronograma anterior (sem duplicar).
-- [x] O cronograma de outro usuário não é tocado.
-- [x] A data exibida é o dia agendado (sem deslocamento de fuso).
-- [x] `/edital` abre mostrando o cronograma salvo (não o formulário).
-- [x] Usuário sem assinatura ativa é redirecionado para a tela de upgrade
-  (não erro 500).
+- [x] Card sem ciclo e atrasado é reprogramado (5/dia, HARD primeiro).
+- [x] Card com `ReviewCycle` ACTIVE **nunca** é tocado: `nextReviewDate`
+      continua espelhando a `ScheduledReview` pendente.
+- [x] Card com ciclo já encerrado pode ser reorganizado (o ciclo continua
+      `COMPLETED`).
+- [x] `skippedActiveCycles` conta exatamente os cards preservados.
+- [x] **Todos** os cards atrasados são reorganizados (250 no teste, o teto
+      antigo era 200).
+- [x] `Flashcard.nextReview` (espelho) acompanha o `nextReviewDate` — badge e
+      fila não divergem.
+- [x] Card de outro usuário não é tocado.
+- [x] Prioridade HARD antes de MEDIUM/EASY.
+- [x] Harness do SRS (A–M) inalterado: **19/19**.
 
 ## Fora de escopo
 
-- **Sem migration**: `ScheduleItem` continua sem coluna `kind`; a marcação é
-  derivada na leitura (1ª ocorrência do assunto = ESTUDO).
-- `StudySchedule.totalDays` continua sendo o **tamanho da janela de ESTUDO**
-  (não o total do plano). A janela de revisão final é derivada:
-  `[startDate + totalDays, examDate)`. **Armadilha para quem mexer aqui.**
-- A página `/edital` é **premium**: sem assinatura ativa ela redireciona
-  para `/dashboard/configuracoes?upgrade=true`.
+- **Sem migration.** Nenhuma coluna nova; o filtro de ciclo usa o
+  `ReviewCycle.status` que já existe.
+- `Flashcard.nextReview` continua sendo um espelho **global** (não é por
+  perfil) — herança do schema, mantida por compatibilidade com todos os
+  outros escritores do SRS (`submitFirstReview`, `classifyAndCreateCycle`,
+  `completeCycleReview`, `skipFlashcard`, `scheduleTopicReviews`).
+- Card com ciclo encerrado não volta para a fila: `queueFilterWithoutCompletedOnly()`
+  exclui card que só tem ciclos `COMPLETED`. Reorganizá-lo é inócuo (a
+  renovação sobrescreve a data) — mas ele **não** reaparece como atraso.
+- `organize-button.tsx` continua sem uso em nenhuma página (componente morto
+  desde sempre); agora ele aponta para o wrapper deprecated.
