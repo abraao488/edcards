@@ -1,5 +1,44 @@
 # WORKLOG
 
+## 2026-10-22 — Auditoria de prontidão do projeto inteiro
+
+**Por quê:** o maestro pediu uma verificação completa ("está pronto agora ou
+falta alguma coisa?"). A resposta curta: **o código está pronto e funcionando,
+mas não está pronto para produção** — falta o histórico de migrations e o
+upgrade do Next.js (2 advisories críticos).
+
+**O que mudou:** nenhum arquivo de `src/` foi alterado. A auditoria só produziu
+documentação:
+
+| Arquivo | Mudança |
+|---|---|
+| `DEV/BACKLOG/PRONTIDAO.md` (novo) | Backlog priorizado (2×P0, 3×P1, 4×P2) com evidência reproduzível de cada item |
+| `DEV/VERIFY.md` | Seção "Auditoria de prontidão" com todas as evidências (gates, harnesses, banco, runtime, integrações, produção, higiene, dependências) |
+| `DEV/HANDOFF.md` | Bloco "O que falta para estar pronto" + riscos atualizados |
+| `DEV/README.md` | Índice atualizado com `BACKLOG/PRONTIDAO.md` |
+
+**Verificação (tudo executado, tudo verde):** `npx tsc --noEmit` 0 erros ·
+`npm run lint` 0 erros (3 warnings pré-existentes) · `npm run build` ok ·
+harnesses **1535/1535** (SRS 19/19 · reorganização 9/9 · cronograma 1482/1482 ·
+render 12/12 · cronograma e2e 7/7 · webhook MP 6/6) · `prisma migrate diff`
+**sem drift** entre `schema.prisma` e o banco de produção · runtime real
+(`next start`): 10 rotas públicas 200, 8 protegidas 307→login, **15 protegidas
+com sessão real 200 sem erro de render** · integrações externas Groq/MP/
+Supabase/Sentry respondendo 200 · site no ar em `www.edcards.com.br` (Vercel).
+
+**Duas pendências reais (com prova, não opinião):**
+
+1. **`prisma migrate deploy` não reproduz o schema.** As 5 migrations em
+   `prisma/migrations/` são incrementais e nenhuma cria as 20 tabelas base; a
+   tabela `_prisma_migrations` nem existe no banco de produção. Provado com
+   uma sonda em banco vazio do mesmo projeto Neon: `ERROR: relation
+   "Subscription" does not exist`. A sonda foi removida; produção não foi
+   tocada.
+2. **`next@14.2.35` tem 2 advisories críticos** (RCE na Image Optimization com
+   AVIF; RCE em servidor Windows) e `14.2.35` é a última versão da linha 14 —
+   o conserto exige major (>=15.5.24). `npm audit --omit=dev` → 23
+   vulnerabilidades (2 críticas, 15 altas, 6 moderadas).
+
 ## 2026-10-22 — Reorganização da fila: campo certo, ciclo ativo preservado, sem take:200
 
 **Por quê:** "Organizar cards atrasados" escrevia em `Flashcard.nextReview`
@@ -84,4 +123,14 @@ nem na fila, nem no calendário. A UI prometia um cronograma que o banco não ti
 não mexer em card com ciclo ativo.
 
 **Verificação:** `npx tsc --noEmit` limpo · `npm run lint` sem erros novos ·
-`npm run build` ok · harness A–M 19/19.
+`npm run build` ok · harness A–M 19/19.## 2026-10-22 — Ajustes P1 da auditoria (sanitize-html + rotas Sentry de teste)
+- **Mudança:** sanitize-html atualizado de 2.17.7 para 2.18.1 (npm install). Removidas src/app/sentry-example-page/ e src/app/api/sentry-example-api/ e retirado /sentry-example-page de publicPaths em src/middleware.ts. 
+- **Motivo:** P1.1/P1.2 da auditoria de prontidão para produção (corrigir advisories de XSS em sanitize-html, remover rota de teste exposta em produção que lança 500 de propósito).
+- **Verificação:** 
+pm ls sanitize-html → 2.18.1. 
+pm audit: total 28→25; vulnerabilidades de sanitize-html removidas da lista. 
+px tsc --noEmit 0 erros; 
+pm run lint 0 erros; 
+pm run build ok (sem /sentry-example-page//api/sentry-example-api).
+- **Próximo:** Restam P0 (migrations reproduzíveis / Next 14.2.35 com 2 advisories críticos) e P1.3 (CI + .env.example). P1.1 e P1.2 fechados.
+

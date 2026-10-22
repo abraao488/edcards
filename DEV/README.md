@@ -22,6 +22,7 @@ Subpastas válidas (não renomear sem atualizar este índice):
 | `WORKLOG.md` | Entradas curtas das mudanças recentes |
 | `VERIFY.md` | Evidências de verificação por mudança |
 | `HANDOFF.md` | Contexto para o próximo agente |
+| `BACKLOG/PRONTIDAO.md` | Backlog priorizado de prontidão para produção (auditoria de 2026-10-22) |
 
 ## Comandos de verificação
 
@@ -34,4 +35,5 @@ npx tsx scripts/organize-tests.ts  # harness O1–O9 da reorganização (banco r
 npx tsx scripts/schedule-plan-tests.ts   # política do cronograma (puro, sem banco)
 npx tsx scripts/schedule-tests.ts        # cronograma end-to-end (banco real, usuário descartável)
 npx tsx --tsconfig scripts/tsconfig.ui-tests.json scripts/schedule-ui-tests.tsx  # render da tela
+npx tsx scripts/mp-webhook-tests.ts   # webhook do Mercado Pago (6 testes, banco real)
 ```

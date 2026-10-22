@@ -2,6 +2,106 @@
 
 Evidências por mudança. Só registre aqui o que foi **executado** e o resultado real.
 
+## 2026-10-22 — Auditoria de prontidão (projeto inteiro)
+
+Auditoria completa do repositório: gates, harnesses, banco real, runtime
+(servidor Next de verdade), integrações externas e dependências.
+Resultado e pendências: `BACKLOG/PRONTIDAO.md`.
+
+### Gates
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Tipos | `npx tsc --noEmit` | **sem saída (0 erros)** |
+| Lint | `npm run lint` | **0 erros**; 3 warnings pré-existentes (`configuracoes/client.tsx`, `profile-form.tsx`, `public-deck-view.tsx`) |
+| Build | `npm run build` | **ok** — 35 rotas, 30 páginas, prisma generate + next build |
+
+### Harnesses (banco real Neon, usuários descartáveis)
+
+| Harness | Comando | Resultado |
+|---|---|---|
+| SRS A–M | `npx tsx scripts/srs-tests-a-k.ts` | **19/19** |
+| Reorganização O1–O9 | `npx tsx scripts/organize-tests.ts` | **9/9** |
+| Política do cronograma (puro) | `npx tsx scripts/schedule-plan-tests.ts` | **1482/1482** |
+| Render da tela do cronograma | `npx tsx --tsconfig scripts/tsconfig.ui-tests.json scripts/schedule-ui-tests.tsx` | **12/12** |
+| Cronograma end-to-end | `npx tsx scripts/schedule-tests.ts` | **7/7** |
+| Webhook Mercado Pago | `npx tsx scripts/mp-webhook-tests.ts` | **6/6** |
+
+Total: **1535 verificações, 0 falhas**.
+
+**Efeito colateral verificado:** 0 usuários `@edcards.test` / `test-*` /
+`test-organize-*` sobraram no banco depois de todos os harnesses.
+
+### Banco de dados (produção)
+
+| Verificação | Comando | Resultado |
+|---|---|---|
+| Drift schema ↔ banco | `prisma migrate diff --from-url <produção> --to-schema-datamodel prisma/schema.prisma` | **No difference detected** — `schema.prisma` == banco real |
+| Histórico de migrations | `prisma migrate status` | **5 migrations "not yet been applied"** — a tabela `_prisma_migrations` **não existe** no banco |
+| Reprodução do schema | `prisma migrate deploy` contra banco vazio de sondagem (criado e removido no mesmo projeto Neon) | **FALHA**: `ERROR: relation "Subscription" does not exist` (42P01) — as 5 migrations são incrementais e **nenhuma cria as 21 tabelas base** |
+
+> A sonda (`edcards_migrate_probe`) foi removida no final. O banco de produção
+> (`neondb`) não foi tocado.
+
+### Runtime (servidor Next real, `next start` na porta 3111)
+
+| Cenário | Resultado |
+|---|---|
+| 10 rotas públicas (`/`, `/login`, `/register`, `/termos`, `/privacidade`, `/reembolso`, `/recuperar-senha`, `/decks`, `/robots.txt`, `/sitemap.xml`) | **200** em todas |
+| `/d/inexistente-xyz` | **404** (correto) |
+| 8 rotas protegidas sem sessão | **307 → `/login`** (middleware ok), sem 500 |
+| 15 rotas protegidas **com sessão real** (usuário descartável no Supabase + assinatura ACTIVE no Prisma) | **200 em todas**, nenhum erro de render (`Application error` / `Unhandled Runtime Error` ausentes no HTML): `/dashboard`, `/dashboard/flashcards`, `/dashboard/questoes`, `/dashboard/questoes/simulado`, `/dashboard/configuracoes`, `/dashboard/convite`, `/dashboard/materiais`, `/flashcards`, `/organizar`, `/edital`, `/gerenciador`, `/materias`, `/decks`, `/bem-vindo`, `/criar-com-edcards` |
+| `/dashboard/subjects` | **307 → `/materias`** — redirect intencional (`page.tsx` chama `redirect()`), não é falha |
+| `/api/study-sessions`, `/api/webhooks/mercadopago` (GET) | **405** — rejeitam método inválido |
+| `/api/sentry-example-api` | **500 proposital** (rota temporária de teste — ver backlog) |
+
+O usuário de teste foi removido do Supabase e do Prisma no final.
+
+### Integrações externas (chamada real, somente leitura)
+
+| Integração | Verificação | Resultado |
+|---|---|---|
+| Groq (IA) | `GET /openai/v1/models` | **200** — `GROQ_API_KEY` válida |
+| Mercado Pago | `GET /users/me` | **200** — token válido |
+| Supabase Auth | `GET /auth/v1/health` | **200** |
+| Sentry | DSN `NEXT_PUBLIC_SENTRY_DSN` | formato válido (`...@o4512251111538688.ingest.us.sentry.io/4512251145355264`) |
+
+### Produção no ar (Vercel)
+
+`https://edcards.com.br` → 308 → `https://www.edcards.com.br` (Vercel, Linux).
+Rotas checadas no ar: `/` 200, `/login` 200, `/termos` 200, `/privacidade` 200,
+`/d/inexistente` 404, `/dashboard` 307, `/organizar` 307, `/edital` 307.
+O build publicado é o mesmo do repositório (`/sentry-example-page` 200 e
+`/api/sentry-example-api` 500 também estão no ar).
+
+### Higiene do código
+
+| Verificação | Resultado |
+|---|---|
+| `TODO` / `FIXME` / `stub` / `mock` / `em breve` em `src/` | **0** — as 91 ocorrências de "placeholder" são atributos HTML `placeholder=` |
+| `console.log` / `debugger` residuais | 13 `console.log` (11 no webhook MP — logs operacionais; 1 em `subscription-status-sync.tsx`; 1 em `mercadopago/actions.ts`) · 0 `debugger` |
+| Links internos (`href="/..."`) apontando para rota inexistente | **0** (os grupos `(auth)`/`(legal)` resolvem para `/login`, `/register`, `/termos`, `/privacidade`, `/reembolso`, `/recuperar-senha` — todos confirmados 200) |
+| Componentes mortos | `src/components/organize-button.tsx` — **0 referências** (aponta para wrapper deprecated) |
+| `.env` versionado | **não** (`.env` no `.gitignore`; `git ls-files` não lista nenhum arquivo de env) |
+
+### Dependências
+
+`npm audit --omit=dev` → **23 vulnerabilidades (2 críticas, 15 altas, 6 moderadas)**.
+Detalhe em `BACKLOG/PRONTIDAO.md`. Críticas: `next@14.2.35` (RCE na Image
+Optimization API com AVIF — `GHSA-2xp9-vwfh-vxw4`; RCE em servidor Windows —
+`GHSA-p293-qw3h-jr36`) e `proxy-addr` (transitiva do `next`).
+`sanitize-html@2.17.7` tem 3 advisories de XSS com patch em 2.18.1.
+`npm audit fix` sem `--force` ainda instala `next@16.4.2` (major) → não é
+correção segura automática.
+
+### Arquivos de teste verificados
+
+`scripts/`: `srs-tests-a-k.ts`, `organize-tests.ts`, `schedule-plan-tests.ts`,
+`schedule-tests.ts`, `schedule-ui-tests.tsx`, `mp-webhook-tests.ts`,
+`backfill-review-cycles.ts`, `remigrate-review-cycles.ts`,
+`tsconfig.ui-tests.json`.
+
+
 ## 2026-10-22 — Reorganização da fila (campo certo, ciclo ativo preservado, sem take:200)
 
 | Gate | Comando | Resultado |
@@ -144,3 +244,19 @@ antes de publicar.
 
 O harness cria um usuário descartável no Postgres de produção e o remove no
 final (`cleanupAll`). Nenhum dado de usuário real é tocado.
+### 2026-10-22 — Ajustes P1 da auditoria (sanitize-html + rotas Sentry de teste)
+| Gate | Comando | Resultado |
+|---|---|---|
+| Dependência | 
+pm ls sanitize-html | sanitize-html@2.18.1 |
+| Segurança | 
+pm audit (antes/depois) | total 28 → 25; advisories XSS de sanitize-html resolvidos |
+| Tipos | 
+px tsc --noEmit | 0 erros |
+| Lint | 
+pm run lint | 0 erros |
+| Build | 
+pm run build | ok |
+
+Removidos src/app/sentry-example-page/ e src/app/api/sentry-example-api/; retirado /sentry-example-page de publicPaths em src/middleware.ts. Sem essas rotas no build; Sentry continua funcional.
+
